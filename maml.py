@@ -123,7 +123,7 @@ class MAML:
                     input_task_emb = self.image_embed.model(tf.reshape(inputa,
                                                                        [-1, self.img_size, self.img_size,
                                                                         self.channels]))
-                                                                        
+                    # print("input_task_emb shape: ", input_task_emb)
                     # Create prototype embeddings for each class, shape: [num_classes,128]
                     proto_emb = []
                     labela2idx = tf.argmax(labela, axis=1)
@@ -134,20 +134,24 @@ class MAML:
                         proto_emb.append(new_vec)
                     proto_emb = tf.squeeze(tf.stack(proto_emb))
 
-                    label_cat = tf.eye(5)
+                    label_cat = tf.eye(FLAGS.num_classes)
                     input_task_emb_cat = tf.concat((proto_emb, label_cat), axis=-1)
-
                 # graph_attention = tf.nn.softmax(self.graph_weights)
                 if FLAGS.datasource in ['2D']:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb)
                     propagate_knowledge = self.metagraph.model(input_task_emb_cat)
                 elif FLAGS.datasource in ['plainmulti', 'artmulti']:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb_cat)
+                    # print("task_embed_vec: ", task_embed_vec)
+                    # print("task_emb_loss: ", task_emb_loss)
                     propagate_knowledge = self.treeGraph.model(proto_emb)
                     
                 task_embed_vec_graph, task_emb_loss_graph = self.lstmae_graph.model(propagate_knowledge)
+                # print("task_embed_vec_graph: ", task_embed_vec_graph)
+                # print("task_emb_loss_graph: ", task_emb_loss_graph)
 
                 task_enhanced_emb_vec = tf.concat([task_embed_vec, task_embed_vec_graph], axis=1)
+                # print("task_enhanced_emb_vec: ", task_enhanced_emb_vec)
                 # Compute task specific weights
                 with tf.variable_scope('task_specific_mapping', reuse=tf.AUTO_REUSE):
                     eta = []
