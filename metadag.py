@@ -46,9 +46,19 @@ class MetaGraph(object):
         self.proto_num = FLAGS.num_classes
         self.name = name
         self.node_cluster_center, self.nodes_cluster_bias = [], []
+        self.w, self.v, self.u = [], [], []
         for i in range(FLAGS.num_graph_vertex):
             self.node_cluster_center.append(tf.get_variable(name='{}_{}_node_cluster_center'.format(name, i),
                                                             shape=(1, input_dim)))
+        
+            self.w.append(tf.get_variable(name='{}_{}_w'.format(name,i),
+                                                            shape=(FLAGS.num_classes, 1)))
+
+            self.v.append(tf.get_variable(name='{}_{}_v'.format(name,i),
+                                                            shape=(FLAGS.num_classes, input_dim)))
+
+            self.u.append(tf.get_variable(name='{}_{}_u'.format(name,i),
+                                                            shape=(FLAGS.num_classes, input_dim)))
         self.vertex_num = FLAGS.num_graph_vertex
 
         meta_graph = []
@@ -191,59 +201,51 @@ class TreeGraph(object):
         ------
         repr : Tensor, shape: [num_class, 128]
         """
-        sigma = 2.0
-        tree_graphs = []
-        tree_embeddings = []
+        if FLAGS.datasource in ['plainmulti', 'artmulti']:
+            sigma = 8.0
+        elif FLAGS.datasource in ['2D']:
+            sigma = 2.0
+
         # Iterate though each level of the graph tree
         for i, level in enumerate(self.graph_tree):
-            updated_proto_graphs = []
-            updated_proto_embeddings = []
-            # If first level compute the updated proto graph as GCN(proto graph, current meta graph)
-            if i == 0:
-                updated_proto_graph_nodes, updated_proto_graph_edges = level[0].model(inputs)
 
-                updated_proto_graphs.append(updated_proto_graph_nodes)
+            # Iterate through the current level meta graphs and compute the updated proto graph
+            soft_attention = []
+            temp_updated_graphs = []
+            for graph in level:
+                # compute the updated proto graph as GCN(updated proto graph, current meta graph)
+                graph_nodes,_  = graph.model(inputs)
 
-                updated_proto_embeddings.append(self.graph_embedding(updated_proto_graph_nodes, updated_proto_graph_edges, i, 0))
-            else:
-                # Iterate over the updated prototype graph and embeddings from the previous level
-                for j, prev_level_updated_graph, prev_level_updated_embedding in zip(range(len(tree_embeddings[-1])), tree_graphs[-1], tree_embeddings[-1]):
+                node_att =[]
+                for j in range(FLAGS.num_graph_vertex):
+                    node = tf.expand_dims(graph_nodes[j], axis=0)
+                    v_xt = tf.tanh(tf.matmul(graph.v[j],tf.transpose(node)))
+                    u_xt = tf.sigmoid(tf.matmul(graph.u[j],tf.transpose(node)))
+                    tensor_pro = tf.multiply(v_xt, u_xt)
+                    node_att.append(tf.transpose(tf.expand_dims(graph.w[j], axis=1))@tensor_pro)
+                
+                node_att = tf.squeeze(tf.stack(node_att))
+                soft_attention.append(node_att)
+                # Store the current updated_proto_graphs weighted by the attention
+                temp_updated_graphs.append(graph_nodes)
+            
+            temp_updated_graphs = tf.stack(temp_updated_graphs)
+            soft_attention = tf.stack(soft_attention)
+            # Compute the softmax for every node of every graph in the level
+            soft_attention = tf.nn.softmax(soft_attention, axis=0, name='attention_l{}'.format(i))
+            
+            updated_graphs = []
+            for i in range(len(level)):
+                updated_nodes = []
+            # Update each node as the weighted average
+                for j in range(FLAGS.num_graph_vertex):
+                    updated_nodes.append(soft_attention[i][j]*temp_updated_graphs[i][j])
+                updated_graphs.append(tf.stack(updated_nodes))
+            updated_graphs = tf.stack(updated_graphs)
 
-                    # Compute the soft assignment between the current level meta graphs and the updated prototype graph
-                    soft_attention = []
-                    for k, graph in enumerate(level):
-                        # Compute the embedding for the current graph
-                        current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
-                        current_embedding = self.graph_embedding(current_graph, graph.meta_graph_edges, i, k) 
-                        euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
-                        ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))  
-                        soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
-                    # Do an sigmoid operation on the attentions
-                    soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
-                    soft_attention = tf.identity(soft_attention, name='attention_l{}n{}_to_l{}'.format(i-1, j, i))
-                    # Iterate through the current level meta graphs
-                    temp_updated_graphs = []
-                    for k, graph in enumerate(level):
-                        # compute the updated proto graph as GCN(updated proto graph, current meta graph)
-                        graph_nodes,_  = graph.model(prev_level_updated_graph)
-                        # Store the current updated_proto_graphs weighted by the attention
-                        temp_updated_graphs.append(soft_attention[k] * graph_nodes)
-                    updated_proto_graphs.append(tf.stack(temp_updated_graphs))
-
-                # Sum the multiple sets of updated prototype graph generated by each previous level prototype graph
-                updated_proto_graphs = tf.stack(updated_proto_graphs)
-                updated_proto_graphs = tf.reduce_sum(updated_proto_graphs, axis=0, keepdims=False)
-                updated_proto_graphs = tf.unstack(updated_proto_graphs, axis=0)
-                # Compute the embedding for the updated prototype graphs of the current level
-                for k, graph in enumerate(updated_proto_graphs):
-                    updated_proto_embeddings.append(self.graph_embedding(graph, graph_edges=None, level_num=i, graph_num=k))
-
-            # Update the history of updated prototype graph and embeddings list 
-            tree_graphs.append(updated_proto_graphs)
-            tree_embeddings.append(updated_proto_embeddings)
-
+            inputs = tf.reduce_sum(updated_graphs, axis = 0)
             # print("\n***********************************************\n\n\n")
-        return tree_graphs[-1][0]
+        return inputs
 
 if __name__ == "__main__":
     main()
