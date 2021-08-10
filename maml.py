@@ -6,7 +6,7 @@ from tensorflow.python.platform import flags
 
 from image_embedding import ImageEmbedding
 from metadag import MetaGraph, TreeGraph
-from task_embedding import LSTMAutoencoder
+from task_embedding import LSTMAutoencoder, GraphConvolution
 from utils import mse, xent, conv_block, normalize
 
 FLAGS = flags.FLAGS
@@ -31,10 +31,14 @@ class MAML:
         self.classification = False
         self.test_num_updates = test_num_updates
         self.sess = sess
-        self.lstmae = LSTMAutoencoder(hidden_num=FLAGS.hidden_dim, input_num=FLAGS.hidden_dim + FLAGS.num_classes,
-                                      name='lstm_ae')
-        self.lstmae_graph = LSTMAutoencoder(hidden_num=FLAGS.hidden_dim, input_num=FLAGS.hidden_dim,
-                                            name='lstm_ae_graph')
+        # self.lstmae = LSTMAutoencoder(hidden_num=FLAGS.hidden_dim, input_num=FLAGS.hidden_dim + FLAGS.num_classes,
+        #                               name='lstm_ae')
+        # self.lstmae_graph = LSTMAutoencoder(hidden_num=FLAGS.hidden_dim, input_num=FLAGS.hidden_dim,
+        #                                     name='lstm_ae_graph')
+        
+        self.proto_GCN = GraphConvolution(hidden_dim=FLAGS.hidden_dim, input_num=FLAGS.hidden_dim + FLAGS.num_classes, name='proto_embedding')
+        self.meta_GCN = GraphConvolution(hidden_dim=FLAGS.hidden_dim, input_num=FLAGS.hidden_dim, name='meta_embedding')
+        
         self.metagraph = []
         if FLAGS.datasource in ['2D']:
             self.metagraph = MetaGraph(input_dim=FLAGS.sync_filters, hidden_dim=FLAGS.sync_filters)
@@ -142,10 +146,16 @@ class MAML:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb)
                     propagate_knowledge = self.metagraph.model(input_task_emb_cat)
                 elif FLAGS.datasource in ['plainmulti', 'artmulti']:
-                    task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb_cat)
+
+                    task_embed_vec = tf.reduce_mean(self.proto_GCN.model(input_task_emb_cat), axis=0)
+                    task_embed_vec = tf.expand_dims(task_embed_vec, axis=0)
+                    # task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb_cat)
                     propagate_knowledge = self.treeGraph.model(proto_emb)
                     
-                task_embed_vec_graph, task_emb_loss_graph = self.lstmae_graph.model(propagate_knowledge)
+
+                task_embed_vec_graph = tf.reduce_mean(self.meta_GCN.model(propagate_knowledge), axis=0)
+                task_embed_vec_graph = tf.expand_dims(task_embed_vec_graph, axis=0)
+                # task_embed_vec_graph, task_emb_loss_graph = self.lstmae_graph.model(propagate_knowledge)
 
                 task_enhanced_emb_vec = tf.concat([task_embed_vec, task_embed_vec_graph], axis=1)
                 # Compute task specific weights
@@ -191,7 +201,7 @@ class MAML:
                     task_outputbs.append(output)
                     task_lossesb.append(self.loss_func(output, labelb))
 
-                task_output = [task_emb_loss, task_emb_loss_graph, task_outputa, task_outputbs, task_lossa,
+                task_output = [task_outputa, task_outputbs, task_lossa,
                                task_lossesb]
 
                 if self.classification:
@@ -208,14 +218,14 @@ class MAML:
             if FLAGS.norm != 'None':
                 unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
 
-            out_dtype = [tf.float32, tf.float32, tf.float32, [tf.float32] * num_updates, tf.float32,
+            out_dtype = [tf.float32, [tf.float32] * num_updates, tf.float32,
                          [tf.float32] * num_updates]
             if self.classification:
                 out_dtype.extend([tf.float32, [tf.float32] * num_updates])
             result = tf.map_fn(task_metalearn, elems=(self.inputa, self.inputb, self.labela, self.labelb),
                                dtype=out_dtype, parallel_iterations=FLAGS.meta_batch_size)
             if self.classification:
-                emb_loss, emb_loss_graph, outputas, outputbs, lossesa, lossesb, accuraciesa, accuraciesb = result
+                outputas, outputbs, lossesa, lossesb, accuraciesa, accuraciesb = result
             else:
                 emb_loss, emb_loss_graph, outputas, outputbs, lossesa, lossesb = result
 
@@ -224,8 +234,6 @@ class MAML:
             self.total_loss1 = total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)
             self.total_losses2 = total_losses2 = [tf.reduce_sum(lossesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j
                                                   in range(num_updates)]
-            self.total_embed_loss = tf.reduce_sum(emb_loss) / tf.to_float(FLAGS.meta_batch_size)
-            self.total_embed_loss_graph = tf.reduce_sum(emb_loss_graph) / tf.to_float(FLAGS.meta_batch_size)
             # after the map_fn
             self.outputas, self.outputbs = outputas, outputbs
             if self.classification:
@@ -234,8 +242,7 @@ class MAML:
                     tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
             self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
 
-            self.combined_loss = self.total_losses2[FLAGS.num_updates - 1] + FLAGS.emb_loss_weight * (
-                            self.total_embed_loss + self.total_embed_loss_graph)
+            self.combined_loss = self.total_losses2[FLAGS.num_updates - 1]
             if FLAGS.metatrain_iterations > 0:
                 optimizer = tf.train.AdamOptimizer(self.meta_lr)
                 self.gvs = gvs = optimizer.compute_gradients(self.combined_loss)

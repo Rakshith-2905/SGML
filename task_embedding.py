@@ -85,3 +85,51 @@ class LSTMAutoencoder(object):
         self.emb_all = tf.reduce_mean(self.z_codes, axis=0)
 
         return self.emb_all, self.loss
+
+
+
+class GraphConvolution(object):
+
+    def __init__(self, hidden_dim, input_num, name=None, act=tf.nn.tanh, bias=True, dropout=0.0):
+        self.act = act
+        self.dropout = dropout
+        self.hidden_dim = hidden_dim
+        self.bias = bias
+
+        with tf.variable_scope('{}_vars'.format(name), tf.AUTO_REUSE):
+            self.gcn_weights = tf.Variable(tf.truncated_normal([input_num, self.hidden_dim], dtype=tf.float32),
+                                           name='gcn_weight_' + name)
+            if self.bias:
+                self.gcn_bias = tf.Variable(tf.constant(0.0, shape=[self.hidden_dim],
+                                                        dtype=tf.float32), name='gcn_bias_' + name)
+
+    def model(self, feat):
+        adj = []
+        for idx_i in range(FLAGS.num_classes):
+            tmp_dist = []
+            for idx_j in range(FLAGS.num_classes):
+                if idx_i == idx_j:
+                    dist = tf.squeeze(tf.zeros([1]))
+                else:
+                    dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
+                        tf.abs(tf.expand_dims(feat[idx_i] - feat[idx_j], axis=0)), units=1)))
+                tmp_dist.append(dist)
+            adj.append(tf.stack(tmp_dist))
+        adj = tf.stack(adj)
+
+        x = feat
+        x = tf.nn.dropout(x, 1 - self.dropout)
+
+        node_size = tf.shape(adj)[0]
+        I = tf.eye(node_size)
+        adj = adj + I
+        D = tf.diag(tf.reduce_sum(adj, axis=1))
+        adj = tf.matmul(tf.linalg.inv(D), adj)
+        pre_sup = tf.matmul(x, self.gcn_weights)
+        output = tf.matmul(adj, pre_sup)
+        if self.bias:
+            output += self.gcn_bias
+        if self.act is not None:
+            return self.act(output)
+        else:
+            return output

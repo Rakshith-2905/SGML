@@ -89,10 +89,10 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
             feed_dict = {model.inputa: inputa, model.inputb: inputb, model.labela: labela, model.labelb: labelb}
 
         if itr == 0:
-            input_tensors = [model.combined_loss, model.combined_loss, model.total_embed_loss, model.total_loss1,
+            input_tensors = [model.combined_loss, model.combined_loss, model.total_loss1,
                          model.total_losses2[FLAGS.num_updates - 1]]
         else:
-            input_tensors = [model.metatrain_op, model.combined_loss, model.total_embed_loss, model.total_loss1,
+            input_tensors = [model.metatrain_op, model.combined_loss, model.total_loss1,
                             model.total_losses2[FLAGS.num_updates - 1]]
         if model.classification:
             input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates - 1]])
@@ -151,14 +151,14 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
         result = sess.run(input_tensors, feed_dict)
         
         combined_loss.append(result[1])
-        meta_train_loss.append(result[3])
-        meta_train_acc.append(result[5])
-        meta_test_acc.append(result[6])
-        attention.append(result[7])
-        meta_graph.append(result[8])
-        meta_graph_edges.append(result[9])
-        graph_embeddings.append(result[10])
-        embed_diffs.append(result[11])
+        meta_train_loss.append(result[2])
+        meta_train_acc.append(result[4])
+        meta_test_acc.append(result[5])
+        attention.append(result[6])
+        meta_graph.append(result[7])
+        meta_graph_edges.append(result[8])
+        graph_embeddings.append(result[9])
+        embed_diffs.append(result[10])
 
         if FLAGS.DEBUG == True:
 
