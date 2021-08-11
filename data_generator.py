@@ -131,7 +131,12 @@ class DataGenerator(object):
             sel = np.random.randint(4)
             if FLAGS.train == False and FLAGS.test_dataset != -1:
                 sel = FLAGS.test_dataset
-            sampled_character_folders = random.sample(folders[sel], self.num_classes)
+            
+            if FLAGS.hetrogeneous:
+                sampled_character_folders = random.sample(sum(folders, []), self.num_classes)
+            else:
+                sampled_character_folders = random.sample(folders[sel], self.num_classes)
+
             random.shuffle(sampled_character_folders)
             labels_and_images = get_images(sampled_character_folders, range(self.num_classes),
                                            nb_samples=self.num_samples_per_class, shuffle=False)
