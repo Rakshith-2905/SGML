@@ -5,7 +5,7 @@ import tensorflow as tf
 from tensorflow.python.platform import flags
 
 from image_embedding import ImageEmbedding
-from metadag import MetaGraph, TreeGraph
+from metadag import MetaGraph
 from task_embedding import LSTMAutoencoder
 from utils import mse, xent, conv_block, normalize
 
@@ -14,16 +14,6 @@ FLAGS = flags.FLAGS
 
 class MAML:
     def __init__(self, sess, dim_input=1, dim_output=1, test_num_updates=5):
-        """
-        Initialize LSTM AE, task embedding grah and image embedding grah models.
-
-        Parameters
-        ----------
-        dim_input : int, image dimension as 1D tensor, im_w*im_h*3
-        dim_output : int, number of class
-        test_num_updates : int, number of inner gradient updates during test.
-
-        """
         self.dim_input = dim_input
         self.dim_output = dim_output
         self.update_lr = FLAGS.update_lr
@@ -35,16 +25,10 @@ class MAML:
                                       name='lstm_ae')
         self.lstmae_graph = LSTMAutoencoder(hidden_num=FLAGS.hidden_dim, input_num=FLAGS.hidden_dim,
                                             name='lstm_ae_graph')
-        self.metagraph = []
         if FLAGS.datasource in ['2D']:
             self.metagraph = MetaGraph(input_dim=FLAGS.sync_filters, hidden_dim=FLAGS.sync_filters)
         elif FLAGS.datasource in ['plainmulti', 'artmulti']:
-            # iterate over number of graphs and create the desired graphs
-            # for graph_idx in range(FLAGS.num_graph):
-            #     self.metagraph.append(MetaGraph(input_dim=FLAGS.hidden_dim, hidden_dim=FLAGS.hidden_dim, name=graph_idx))
-            self.treeGraph = TreeGraph(input_dim=FLAGS.hidden_dim, hidden_dim=FLAGS.hidden_dim)
-
-        # self.graph_weights = tf.Variable(tf.zeros([FLAGS.num_graph]))
+            self.metagraph = MetaGraph(input_dim=FLAGS.hidden_dim, hidden_dim=FLAGS.hidden_dim)
 
         if FLAGS.datasource in ['2D']:
             self.dim_hidden = [40, 40]
@@ -65,21 +49,6 @@ class MAML:
             raise ValueError('Unrecognized data source.')
 
     def construct_model(self, input_tensors=None, prefix='metatrain_'):
-        """
-        Construct the ARML model
-
-        Parameters
-        ----------
-        input_tensors : dict, dictionary of train and test tensor of images and labels
-                        image shape: meta_batch_size,examples_per_batch ,(im_w*imh*3)
-                        label shape: meta_batch_size,examples_per_batch, num_classes
-
-        prefix : str, flag for train or test
-        
-        Return
-        ------
-        
-        """
         if input_tensors is None:
             self.inputa = tf.placeholder(tf.float32, shape=(FLAGS.meta_batch_size, FLAGS.update_batch_size, 2))
             self.inputb = tf.placeholder(tf.float32,
@@ -104,10 +73,8 @@ class MAML:
             num_updates = max(self.test_num_updates, FLAGS.num_updates)
             accuraciesb = [[]] * num_updates
 
-            # print("total input shape: ", self.inputa)
             def task_metalearn(inp, reuse=True):
                 inputa, inputb, labela, labelb = inp
-                # print("Input shape per batch: ", inputa)
                 if FLAGS.datasource in ['2D']:
                     input_task_emb = tf.concat((inputa, labela), axis=-1)
                     with tf.variable_scope('first_embedding_sync', reuse=tf.AUTO_REUSE):
@@ -119,12 +86,10 @@ class MAML:
                             input_task_emb_cat = tf.matmul(tf.transpose(assign_mat, perm=[1, 0]), input_task_emb)
 
                 elif FLAGS.datasource in ['plainmulti', 'artmulti']:
-                    # Create embedding for the batch, of shape [num_classes, 128] given input of num_classes, (im_w*imh*3)
                     input_task_emb = self.image_embed.model(tf.reshape(inputa,
                                                                        [-1, self.img_size, self.img_size,
                                                                         self.channels]))
-                                                                        
-                    # Create prototype embeddings for each class, shape: [num_classes,128]
+
                     proto_emb = []
                     labela2idx = tf.argmax(labela, axis=1)
                     for class_idx in range(FLAGS.num_classes):
@@ -135,20 +100,20 @@ class MAML:
                     proto_emb = tf.squeeze(tf.stack(proto_emb))
 
                     label_cat = tf.eye(5)
+
                     input_task_emb_cat = tf.concat((proto_emb, label_cat), axis=-1)
 
-                # graph_attention = tf.nn.softmax(self.graph_weights)
                 if FLAGS.datasource in ['2D']:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb)
                     propagate_knowledge = self.metagraph.model(input_task_emb_cat)
                 elif FLAGS.datasource in ['plainmulti', 'artmulti']:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb_cat)
-                    propagate_knowledge = self.treeGraph.model(proto_emb)
-                    
+                    propagate_knowledge = self.metagraph.model(proto_emb)
+
                 task_embed_vec_graph, task_emb_loss_graph = self.lstmae_graph.model(propagate_knowledge)
 
                 task_enhanced_emb_vec = tf.concat([task_embed_vec, task_embed_vec_graph], axis=1)
-                # Compute task specific weights
+
                 with tf.variable_scope('task_specific_mapping', reuse=tf.AUTO_REUSE):
                     eta = []
                     for key in weights.keys():
@@ -157,7 +122,6 @@ class MAML:
                             tf.layers.dense(task_enhanced_emb_vec, weight_size, activation=tf.nn.sigmoid,
                                             name='eta_{}'.format(key)), tf.shape(weights[key])))
                     eta = dict(zip(weights.keys(), eta))
-                    
                     task_weights = dict(zip(weights.keys(), [weights[key] * eta[key] for key in weights.keys()]))
 
                 task_outputbs, task_lossesb = [], []
@@ -234,11 +198,11 @@ class MAML:
                     tf.reduce_sum(accuraciesb[j]) / tf.to_float(FLAGS.meta_batch_size) for j in range(num_updates)]
             self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
 
-            self.combined_loss = self.total_losses2[FLAGS.num_updates - 1] + FLAGS.emb_loss_weight * (
-                            self.total_embed_loss + self.total_embed_loss_graph)
             if FLAGS.metatrain_iterations > 0:
                 optimizer = tf.train.AdamOptimizer(self.meta_lr)
-                self.gvs = gvs = optimizer.compute_gradients(self.combined_loss)
+                self.gvs = gvs = optimizer.compute_gradients(
+                    self.total_losses2[FLAGS.num_updates - 1] + FLAGS.emb_loss_weight * (
+                            self.total_embed_loss + self.total_embed_loss_graph))
                 self.metatrain_op = optimizer.apply_gradients(gvs)
         else:
             self.metaval_total_loss1 = tf.reduce_sum(lossesa) / tf.to_float(FLAGS.meta_batch_size)

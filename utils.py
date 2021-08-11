@@ -50,8 +50,3 @@ def mse(pred, label):
 
 def xent(pred, label):
     return tf.nn.softmax_cross_entropy_with_logits(logits=pred, labels=label) / FLAGS.update_batch_size
-
-def tf_kron(a,b):
-    a_shape = [a.shape[0].value,a.shape[1].value]
-    b_shape = [b.shape[0].value,b.shape[1].value]
-    return tf.reshape(tf.reshape(a,[a_shape[0],1,a_shape[1],1])*tf.reshape(b,[1,b_shape[0],1,b_shape[1]]),[a_shape[0]*b_shape[0],a_shape[1]*b_shape[1]])
