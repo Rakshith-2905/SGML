@@ -15,17 +15,6 @@ FLAGS = flags.FLAGS
 
 class DataGenerator(object):
     def __init__(self, num_samples_per_class, batch_size, config={}):
-        """
-        Initialize class attributes like batch size, numclasses etc
-        Load image paths if data is artmulti or plainmulti
-
-        Parameters
-        ----------
-        num_samples_per_class : int, number of examples used for inner gradient update (K for K-shot learning).
-        batch_size : int,
-        config : dict, dictonay of configurations, eg. num_class, img_size ..
-
-        """
         self.batch_size = batch_size
         self.num_samples_per_class = num_samples_per_class
         self.num_classes = 1  # by default 1 (only relevant for classification problems)
@@ -106,24 +95,16 @@ class DataGenerator(object):
             raise ValueError('Unrecognized data source')
 
     def make_data_tensor_plainmulti(self, train=True):
-        """
-        loads and returns normalized batches of images as a 1D tensor and associated labels
-
-        Parameters
-        ----------
-        train : bool, flag for train or test
-        
-        Return
-        ------
-        all_image_batches : Tensor, shape: batch_size,examples_per_batch ,(im_w*imh*3)
-        all_label_batches : Tensor, shape: batch_size,examples_per_batch, num_classes
-        """
         if train:
             folders = self.metatrain_character_folders
             num_total_batches = 200000
         else:
             folders = self.metaval_character_folders
             num_total_batches = FLAGS.num_test_task
+        
+        if FLAGS.hetrogeneous:
+            folders = sum(folders, [])
+            random.shuffle(folders)
         # make list of files
         print('Generating filenames')
         all_filenames = []
@@ -133,8 +114,6 @@ class DataGenerator(object):
                 sel = FLAGS.test_dataset
             
             if FLAGS.hetrogeneous:
-                folders = sum(folders, [])
-                random.shuffle(folders)
                 sampled_character_folders = random.sample(folders, self.num_classes)
             else:
                 sampled_character_folders = random.sample(folders[sel], self.num_classes)
@@ -196,18 +175,6 @@ class DataGenerator(object):
         return all_image_batches, all_label_batches
 
     def make_data_tensor_artmulti(self, train=True):
-        """
-        loads and returns normalized batches of images as a 1D tensor and associated labels
-
-        Parameters
-        ----------
-        train : bool, flag for train or test
-        
-        Return
-        ------
-        all_image_batches : Tensor, shape: batch_size,examples_per_batch ,(im_w*imh*3)
-        all_label_batches : Tensor, shape: batch_size,examples_per_batch, num_classes
-        """
         if train:
             folders = self.metatrain_character_folders
             num_total_batches = 200000
