@@ -133,7 +133,9 @@ class DataGenerator(object):
                 sel = FLAGS.test_dataset
             
             if FLAGS.hetrogeneous:
-                sampled_character_folders = random.sample(sum(folders, []), self.num_classes)
+                folders = sum(folders, [])
+                random.shuffle(folders)
+                sampled_character_folders = random.sample(folders, self.num_classes)
             else:
                 sampled_character_folders = random.sample(folders[sel], self.num_classes)
 
