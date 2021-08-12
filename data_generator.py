@@ -124,6 +124,10 @@ class DataGenerator(object):
         else:
             folders = self.metaval_character_folders
             num_total_batches = FLAGS.num_test_task
+
+        if FLAGS.hetrogeneous:
+            folders = sum(folders, [])
+            random.shuffle(folders)
         # make list of files
         print('Generating filenames')
         all_filenames = []
@@ -131,7 +135,12 @@ class DataGenerator(object):
             sel = np.random.randint(4)
             if FLAGS.train == False and FLAGS.test_dataset != -1:
                 sel = FLAGS.test_dataset
-            sampled_character_folders = random.sample(folders[sel], self.num_classes)
+            
+            if FLAGS.hetrogeneous:
+                sampled_character_folders = random.sample(folders, self.num_classes)
+            else:
+                sampled_character_folders = random.sample(folders[sel], self.num_classes)
+
             random.shuffle(sampled_character_folders)
             labels_and_images = get_images(sampled_character_folders, range(self.num_classes),
                                            nb_samples=self.num_samples_per_class, shuffle=False)
@@ -139,7 +148,8 @@ class DataGenerator(object):
             labels = [li[0] for li in labels_and_images]
             filenames = [li[1] for li in labels_and_images]
             all_filenames.extend(filenames)
-
+            
+            
         # make queue for tensorflow to read from
         filename_queue = tf.train.string_input_producer(tf.convert_to_tensor(all_filenames), shuffle=False)
         print('Generating image processing ops')

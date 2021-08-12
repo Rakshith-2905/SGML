@@ -16,6 +16,7 @@ FLAGS = flags.FLAGS
 
 ## Dataset/method options
 flags.DEFINE_string('datasource', 'plainmulti', '2D or plainmulti or artmulti')
+flags.DEFINE_bool('hetrogeneous', False, 'Sample data hetrogenously across 4 classes')
 flags.DEFINE_integer('test_dataset', -1,
                      'which data to be test, plainmulti: 0-3, artmulti: 0-11, -1: random select')
 flags.DEFINE_integer('num_classes', 5, 'number of classes used in classification (e.g. 5-way classification).')
