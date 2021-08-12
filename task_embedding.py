@@ -31,20 +31,11 @@ class LSTMAutoencoder(object):
                                                 dtype=tf.float32), name='dec_bias_{}'.format(self.name))
 
     def model(self, inputs):
-        """
-        
 
-        Parameters
-        ----------
-        inputs : tensor, shape: num_class, embedding_dims
-        
-        Return
-        ------
-        local4 : Tensor, shape: num_class, 128
-        """
         inputs = tf.expand_dims(inputs, 0)
 
         inputs = tf.unstack(inputs, axis=1)
+
         self.batch_num = FLAGS.meta_batch_size
 
         with tf.variable_scope('encoder_{}'.format(self.name)):

@@ -17,19 +17,6 @@ class ImageEmbedding(object):
         self.activation = tf.nn.relu
 
     def model(self, images):
-        """
-        Creates an image image embedding for the image
-
-        Parameters
-        ----------
-        images : tensor, shape: num_class, 84,84,3
-
-        prefix : str, flag for train or test
-        
-        Return
-        ------
-        local4 : Tensor, shape: num_class, 128
-        """
         conv = tf.nn.conv2d(images, self.conv1_kernel, [1, 1, 1, 1], padding='SAME')
         conv1 = tf.nn.relu(conv, name='conv1_post_activation')
 
@@ -58,5 +45,4 @@ class ImageEmbedding(object):
                                             initializer=tf.truncated_normal_initializer(stddev=0.04))
             local4_biases = tf.get_variable(name='biases', shape=[FLAGS.hidden_dim], initializer=tf.constant_initializer(0.1))
             local4 = tf.nn.relu(tf.matmul(local3, local4_weight) + local4_biases, name='local4_dense')
-  
         return local4
