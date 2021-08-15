@@ -143,7 +143,7 @@ class MAML:
                     propagate_knowledge = self.metagraph.model(input_task_emb_cat)
                 elif FLAGS.datasource in ['plainmulti', 'artmulti']:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb_cat)
-                    propagate_knowledge = self.treeGraph.model(proto_emb)
+                    propagate_knowledge = self.treeGraph.model(proto_emb, task_embed_vec)
                     
                 task_embed_vec_graph, task_emb_loss_graph = self.lstmae_graph.model(propagate_knowledge)
 

@@ -155,18 +155,18 @@ class TreeGraph(object):
                         dist = tf.squeeze(tf.zeros([1]))
                     else:
                         dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                            tf.abs(tf.expand_dims(graph_nodes[idx_i] - graph_nodes[idx_j], axis=0)), units=1, name='proto_dist')))
+                            tf.abs(tf.expand_dims(graph_nodes[idx_i] - graph_nodes[idx_j], axis=0)), units=1, name='proto_dist_l{}_g{}'.format(level_num, graph_num))))
                     tmp_dist.append(dist)
                 graph_connections.append(tf.stack(tmp_dist))
 
-            graph_edges = tf.stack(graph_connections)
+            graph_edges = tf.stack(graph_connections, name='proto_l{}_g{}_edges'.format(level_num, graph_num))
 
         # feature matrix is obtained as the product of degree-normalized adjacency matrix and graph nodes
         if not self.eigen_embedding:
             node_size = tf.shape(graph_edges)[0]
             I = tf.eye(node_size)
             adj = graph_edges + I
-            D = tf.diag(tf.reduce_sum(adj, axis=1))
+            D = tf.diag(tf.reduce_sum(adj, axis=1), name='degree_mat_l{}_g{}'.format(level_num, graph_num))
             adj = tf.matmul(tf.linalg.inv(D), adj)
             feature_matrix = tf.matmul(adj, graph_nodes)
         else:
@@ -178,7 +178,7 @@ class TreeGraph(object):
         embedding = tf.math.reduce_mean(feature_matrix, axis=0, name='level_{}_graph_{}_embedding'.format(level_num, graph_num))
         return  embedding
 
-    def model(self, inputs):
+    def model(self, inputs, proto_emb):
         """
         Computes proto_graph, Meta graph, and super_graph
         pass message between the super_graph and proto_graph using GNN
@@ -193,7 +193,7 @@ class TreeGraph(object):
         """
         sigma = 2.0
         # Compute the prototype embedding
-        tree_embeddings = [[self.graph_embedding(inputs, None, -1, 0)]]
+        tree_embeddings = [[proto_emb]]
         tree_graphs  = [[inputs]]
         # Iterate though each level of the graph tree
         for i, level in enumerate(self.graph_tree):
@@ -236,7 +236,6 @@ class TreeGraph(object):
             tree_embeddings.append(updated_proto_embeddings)
 
             # print("\n***********************************************\n\n\n")
-        assert False
         return tree_graphs[-1][0]
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ flags.DEFINE_bool('stop_grad', False, 'if True, do not use second derivatives in
 flags.DEFINE_float('emb_loss_weight', 0.0, 'the weight of autoencoder')
 flags.DEFINE_integer('task_embedding_num_filters', 32, 'number of filters for task embedding')
 ## Graph information
-flags.DEFINE_list('graph_list', [3,1], 'list of nodes in each level')
+flags.DEFINE_list('graph_list', [3, 3, 1], 'list of nodes in each level')
 flags.DEFINE_integer('num_graph_vertex', 5, 'number of vertex for each of the graphs in all the layers')
 flags.DEFINE_bool('eigen_embedding', False, 'Method for embedding the meta graph')
 
@@ -73,7 +73,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     meta_train_acc, meta_test_acc, meta_train_loss, combined_loss = [], [], [], []
 
     attention =[]
-    meta_graph, meta_graph_edges, graph_embeddings, embed_diffs = [], [], [], []
+    meta_graph, meta_graph_edges, graph_embeddings, embed_diffs, proto_edges, degree_matrix = [], [], [], [], [], []
 
     num_classes = data_generator.num_classes
     start_time = time.time()
@@ -98,7 +98,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
         if model.classification:
             input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates - 1]])
 
-            attention_fetch = []
+            attention_fetch = [['model/attention_l-1n0_to_l0:0']]
             for level, graphs in enumerate(FLAGS.graph_list[:-1]):
                 attention_level = []
                 for graph_idx in range(graphs):
@@ -144,10 +144,26 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
                                 prev_level, prev_graph_idx, prev_level+1, curr_graph_index))
                 diff_fetch.append(diff_level)
 
+            proto_edges_fetch = []
+            for level, graphs in enumerate(FLAGS.graph_list):
+                proto_edge_level = []
+                for graph_idx in range(graphs):
+                    proto_edge_level.append('model/proto_l{}_g{}_edges:0'.format(level, graph_idx))
+                proto_edges_fetch.append(proto_edge_level)
+            
+            degree_fetch = []
+            for level, graphs in enumerate(FLAGS.graph_list):
+                degree_level = []
+                for graph_idx in range(graphs):
+                    degree_level.append('model/degree_mat_l{}_g{}:0'.format(level, graph_idx))
+                degree_fetch.append(degree_level)
+
             input_tensors.append(tree_graphs)
             input_tensors.append(tree_graph_edges)
             input_tensors.append(embedding_fetch)
             input_tensors.append(diff_fetch)
+            input_tensors.append(proto_edges_fetch)
+            input_tensors.append(degree_fetch)
         
         result = sess.run(input_tensors, feed_dict)
         
@@ -160,35 +176,46 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
         meta_graph_edges.append(result[9])
         graph_embeddings.append(result[10])
         embed_diffs.append(result[11])
+        proto_edges.append(result[12])
+        degree_matrix.append(result[13])
 
         if FLAGS.DEBUG == True:
 
             print("\n\n\n Epoch {}\n".format(itr))
             # Compare the graphs between each level
             random_idx = -1
-            print("\n")
-            for i, num_graph in enumerate(FLAGS.graph_list):
-                if i == 0: continue
-                for j in range(FLAGS.graph_list[i-1]):
-                    prev_embed = np.array(graph_embeddings[random_idx][i-1][j])
-                    soft_att = []
-                    for k in range(num_graph):
-                        curr_graph = np.array(meta_graph[random_idx][i][k])
-                        curr_edges = np.array(meta_graph_edges[random_idx][i][k])
-                        curr_embed = graph_embedding(curr_graph, curr_edges)
-                        soft_att.append(np.exp(-np.sum(np.square(curr_embed- prev_embed)) / (2.0 * 2.0)))
-                    soft_att = soft_att/np.sum(soft_att)
-                    print("level {} graph {} attention with level {}: {}".format(i-1,j,i,soft_att))
+            
+            for level, level_proto_edges in enumerate(proto_edges[-1]):
+                for idx, edges in enumerate(level_proto_edges):
+                    print('level_{}_graph_{}_proto_edges:\n{}\n'.format(level-1,idx,edges))
+            
+            for level, level_degree_matrix in enumerate(degree_matrix[-1]):
+                for idx, mat in enumerate(level_degree_matrix):
+                    print('level_{}_graph_{}_degree_matrix:\n{}\n'.format(level-1,idx,mat))
+
+            # for i, num_graph in enumerate(FLAGS.graph_list):
+            #     if i == 0: continue
+            #     for j in range(FLAGS.graph_list[i-1]):
+            #         prev_embed = np.array(graph_embeddings[random_idx][i-1][j])
+            #         soft_att = []
+            #         for k in range(num_graph):
+            #             curr_graph = np.array(meta_graph[random_idx][i][k])
+            #             curr_edges = np.array(meta_graph_edges[random_idx][i][k])
+            #             curr_embed = graph_embedding(curr_graph, curr_edges)
+            #             soft_att.append(np.exp(-np.sum(np.square(curr_embed- prev_embed)) / (2.0 * 2.0)))
+            #         soft_att = soft_att/np.sum(soft_att)
+            #         print("level {} graph {} attention with level {}: {}".format(i-1,j,i,soft_att))
 
             print("\n")
 
-            for level, level_diff in enumerate(embed_diffs[-1]):
-                for idx, diff in enumerate(level_diff):
-                    print("Euclidean diff between embed of level {} graph {} and level {}: {}".format(level, idx, level+1, diff))
+            # for level, level_diff in enumerate(embed_diffs[-1]):
+            #     for idx, diff in enumerate(level_diff):
+            #         print("Euclidean diff between embed of level {} graph {} and level {}: {}".format(level, idx, level+1, diff))
 
             for i in range(len(attention[-1])):
                 print("Attention between level {} and {}: {}".format(i, i+1, attention[-1][i]))
-            if itr >3:
+            
+            if itr >10:
                 assert False
 
         if (itr != 0) and itr % PRINT_INTERVAL == 0:
@@ -263,7 +290,7 @@ def test(model, sess, data_generator):
                 embedding_fetch.append(embedding_level)
             fetch.append(embedding_fetch)
 
-            attention_fetch = []
+            attention_fetch = [['model/attention_l-1n0_to_l0:0']]
             for level, graphs in enumerate(FLAGS.graph_list[:-1]):
                 attention_level = []
                 for graph_idx in range(graphs):
@@ -300,43 +327,43 @@ def test(model, sess, data_generator):
     print("\n")
     random_idx = random.randint(0,FLAGS.num_test_task)
     
-    for i, num_graph in enumerate(FLAGS.graph_list):
-            level_graphs = meta_graph[random_idx][i]
-            level_graphs_edges = meta_graph_edges[random_idx][i]
-            for j in range(num_graph):
-                graph_a = np.array(level_graphs[j])
-                graph_a_edges = np.array(level_graphs_edges[j])
-                graph_a_embed = graph_embedding(graph_a,graph_a_edges)
-                for k in range(j, num_graph):
-                    graph_b = np.array(level_graphs[k])
-                    graph_b_edges = np.array(level_graphs_edges[k])
-                    graph_b_embed = graph_embedding(graph_b,graph_b_edges)
-                    dist = distance.euclidean(graph_a_embed, graph_b_embed)
-                    graph_dist = np.linalg.norm(graph_a - graph_b)
-                    if j == k:
-                        pass
-                    else:
-                        print("Level {} graph {} and graph {} embed distance {} graph dist {}".format(i, j, k, dist, graph_dist))
+    # for i, num_graph in enumerate(FLAGS.graph_list):
+    #         level_graphs = meta_graph[random_idx][i]
+    #         level_graphs_edges = meta_graph_edges[random_idx][i]
+    #         for j in range(num_graph):
+    #             graph_a = np.array(level_graphs[j])
+    #             graph_a_edges = np.array(level_graphs_edges[j])
+    #             graph_a_embed = graph_embedding(graph_a,graph_a_edges)
+    #             for k in range(j, num_graph):
+    #                 graph_b = np.array(level_graphs[k])
+    #                 graph_b_edges = np.array(level_graphs_edges[k])
+    #                 graph_b_embed = graph_embedding(graph_b,graph_b_edges)
+    #                 dist = distance.euclidean(graph_a_embed, graph_b_embed)
+    #                 graph_dist = np.linalg.norm(graph_a - graph_b)
+    #                 if j == k:
+    #                     pass
+    #                 else:
+    #                     print("Level {} graph {} and graph {} embed distance {} graph dist {}".format(i, j, k, dist, graph_dist))
     
-    print("\n")
-    for i, num_graph in enumerate(FLAGS.graph_list):
-            level_graphs = meta_graph[random_idx][i]
-            level_graphs_edges = meta_graph_edges[random_idx][i]
-            for j in range(num_graph):
-                graph_a = np.array(level_graphs[j])
-                graph_a_edges = np.array(level_graphs_edges[j])
-                graph_a_embed = graph_embedding(graph_a, graph_a_edges)
-                if i >0:
-                    for k in range(FLAGS.graph_list[i-1]):
-                        graph_b = np.array(meta_graph[random_idx][i-1][k])
-                        graph_b_edges = np.array(meta_graph_edges[random_idx][i-1][k])
-                        graph_b_embed = graph_embedding(graph_b, graph_b_edges)
-                        dist = distance.euclidean(graph_a_embed, graph_b_embed)
-                        graph_dist = np.linalg.norm(graph_a - graph_b)
+    # print("\n")
+    # for i, num_graph in enumerate(FLAGS.graph_list):
+    #         level_graphs = meta_graph[random_idx][i]
+    #         level_graphs_edges = meta_graph_edges[random_idx][i]
+    #         for j in range(num_graph):
+    #             graph_a = np.array(level_graphs[j])
+    #             graph_a_edges = np.array(level_graphs_edges[j])
+    #             graph_a_embed = graph_embedding(graph_a, graph_a_edges)
+    #             if i >0:
+    #                 for k in range(FLAGS.graph_list[i-1]):
+    #                     graph_b = np.array(meta_graph[random_idx][i-1][k])
+    #                     graph_b_edges = np.array(meta_graph_edges[random_idx][i-1][k])
+    #                     graph_b_embed = graph_embedding(graph_b, graph_b_edges)
+    #                     dist = distance.euclidean(graph_a_embed, graph_b_embed)
+    #                     graph_dist = np.linalg.norm(graph_a - graph_b)
 
-                        soft_attention = np.exp(-np.sum(np.square(graph_a_embed- graph_b_embed)) / (2.0 * 2.0))
-                        print("Level {} graph {} and level {} graph {} embed distance {} graph dist {} attention {}".format(
-                            i-1, k, i, j, dist, graph_dist, soft_attention))
+    #                     soft_attention = np.exp(-np.sum(np.square(graph_a_embed- graph_b_embed)) / (2.0 * 2.0))
+    #                     print("Level {} graph {} and level {} graph {} embed distance {} graph dist {} attention {}".format(
+    #                         i-1, k, i, j, dist, graph_dist, soft_attention))
     
     print("\n")
     for i in range(len(attention[random_idx])):
