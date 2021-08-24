@@ -48,7 +48,9 @@ flags.DEFINE_integer('task_embedding_num_filters', 32, 'number of filters for ta
 ## Graph information
 flags.DEFINE_list('graph_list', [1,2,1], 'list of nodes in each level')
 flags.DEFINE_integer('num_graph_vertex', 5, 'number of vertex for each of the graphs in all the layers')
+flags.DEFINE_integer('att_head', 1, 'number of attention head for GraphAttentionNetwork')
 flags.DEFINE_bool('eigen_embedding', False, 'Method for embedding the meta graph')
+flags.DEFINE_float('l1_l2_penalty', 0.025, 'the weight of l1_l2 operation')
 
 ## Logging, saving, and testing options
 flags.DEFINE_bool('log', True, 'if false, do not log summaries, for debugging code.')

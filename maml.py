@@ -139,7 +139,7 @@ class MAML:
                 # graph_attention = tf.nn.softmax(self.graph_weights)
                 if FLAGS.datasource in ['2D']:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb)
-                    propagate_knowledge = self.metagraph.model(input_task_emb_cat)
+                    propagate_knowledge, l1, l2 = self.metagraph.model(input_task_emb_cat)
                 elif FLAGS.datasource in ['plainmulti', 'artmulti']:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb_cat)
                     # print("task_embed_vec: ", task_embed_vec)
@@ -195,7 +195,7 @@ class MAML:
                     task_outputbs.append(output)
                     task_lossesb.append(self.loss_func(output, labelb))
 
-                task_output = [task_emb_loss, task_emb_loss_graph, task_outputa, task_outputbs, task_lossa,
+                task_output = [l1 ,l2, task_emb_loss, task_emb_loss_graph, task_outputa, task_outputbs, task_lossa,
                                task_lossesb]
 
                 if self.classification:
@@ -212,16 +212,16 @@ class MAML:
             if FLAGS.norm != 'None':
                 unused = task_metalearn((self.inputa[0], self.inputb[0], self.labela[0], self.labelb[0]), False)
 
-            out_dtype = [tf.float32, tf.float32, tf.float32, [tf.float32] * num_updates, tf.float32,
+            out_dtype = [tf.float32, tf.float32, tf.float32, tf.float32, tf.float32, [tf.float32] * num_updates, tf.float32,
                          [tf.float32] * num_updates]
             if self.classification:
                 out_dtype.extend([tf.float32, [tf.float32] * num_updates])
             result = tf.map_fn(task_metalearn, elems=(self.inputa, self.inputb, self.labela, self.labelb),
                                dtype=out_dtype, parallel_iterations=FLAGS.meta_batch_size)
             if self.classification:
-                emb_loss, emb_loss_graph, outputas, outputbs, lossesa, lossesb, accuraciesa, accuraciesb = result
+                l1_reg, l2_reg, emb_loss, emb_loss_graph, outputas, outputbs, lossesa, lossesb, accuraciesa, accuraciesb = result
             else:
-                emb_loss, emb_loss_graph, outputas, outputbs, lossesa, lossesb = result
+                l1_reg, l2_reg, emb_loss, emb_loss_graph, outputas, outputbs, lossesa, lossesb = result
 
         ## Performance & Optimization
         if 'train' in prefix:
@@ -230,6 +230,8 @@ class MAML:
                                                   in range(num_updates)]
             self.total_embed_loss = tf.reduce_sum(emb_loss) / tf.to_float(FLAGS.meta_batch_size)
             self.total_embed_loss_graph = tf.reduce_sum(emb_loss_graph) / tf.to_float(FLAGS.meta_batch_size)
+            self.total_l1_reg = tf.reduce_sum(l1_reg) / tf.to_float(FLAGS.meta_batch_size)
+            self.total_l2_reg = tf.reduce_sum(l2_reg) / tf.to_float(FLAGS.meta_batch_size)
             # after the map_fn
             self.outputas, self.outputbs = outputas, outputbs
             if self.classification:
@@ -239,7 +241,7 @@ class MAML:
             self.pretrain_op = tf.train.AdamOptimizer(self.meta_lr).minimize(total_loss1)
 
             self.combined_loss = self.total_losses2[FLAGS.num_updates - 1] + FLAGS.emb_loss_weight * (
-                            self.total_embed_loss + self.total_embed_loss_graph)
+                            self.total_embed_loss + self.total_embed_loss_graph) + FLAGS.l1_l2_penalty(self.total_l2_reg + self.total_l2_reg)
             if FLAGS.metatrain_iterations > 0:
                 optimizer = tf.train.AdamOptimizer(self.meta_lr)
                 self.gvs = gvs = optimizer.compute_gradients(self.combined_loss)
