@@ -50,7 +50,8 @@ flags.DEFINE_list('graph_list', [1,2,1], 'list of nodes in each level')
 flags.DEFINE_integer('num_graph_vertex', 5, 'number of vertex for each of the graphs in all the layers')
 flags.DEFINE_integer('att_head', 1, 'number of attention head for GraphAttentionNetwork')
 flags.DEFINE_bool('eigen_embedding', False, 'Method for embedding the meta graph')
-flags.DEFINE_float('l1_l2_penalty', 0.025, 'the weight of l1_l2 operation')
+flags.DEFINE_float('l1_l2_penalty', 0.0, 'the weight of l1_l2 operation')
+flags.DEFINE_bool('proto_group_sparsity', True, 'Flag to select if group sparsity should be used for each proto node')
 
 ## Logging, saving, and testing options
 flags.DEFINE_bool('log', True, 'if false, do not log summaries, for debugging code.')
@@ -72,7 +73,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
 
     print('Done initializing, starting training.')
 
-    meta_train_acc, meta_test_acc, meta_train_loss, combined_loss = [], [], [], []
+    meta_train_acc, meta_test_acc, meta_train_loss, combined_loss, regularization = [], [], [], [], []
 
     attention =[]
     meta_graph, meta_graph_edges, graph_embeddings, embed_diffs = [], [], [], []
@@ -95,6 +96,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
                         model.total_losses2[FLAGS.num_updates - 1]]
         if model.classification:
             input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates - 1]])
+            input_tensors.append(model.total_reg)
 
         result = sess.run(input_tensors, feed_dict)
         
@@ -102,6 +104,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
         meta_train_loss.append(result[3])
         meta_train_acc.append(result[5])
         meta_test_acc.append(result[6])
+        regularization.append(result[7])
 
         if (itr != 0) and itr % PRINT_INTERVAL == 0:
             print_str = 'Iter {}'.format(itr)
@@ -109,7 +112,8 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
             ci95 = 1.96 * std / np.sqrt(PRINT_INTERVAL)
             print_str += ': metaTrainAcc: ' + str(np.mean(meta_train_acc)) + ', metaTestAcc: ' + str(
                 np.mean(meta_test_acc)) + ', metaTrainLoss: ' + str(np.mean(meta_train_loss)) + ', combinedLoss: ' + str(
-                np.mean(combined_loss)) + ', confidence: ' + str(ci95) + ', timeTaken: ' + str(
+                np.mean(combined_loss)) +  ', regularizer: ' + str(
+                np.mean(regularization)) + ', confidence: ' + str(ci95) + ', timeTaken: ' + str(
                 time.time() - start_time) + ' secs, estimatedRemainingTime: ' + str(
                 (time.time() - start_time)*((FLAGS.metatrain_iterations-itr)/PRINT_INTERVAL)/3600) + ' hrs'
 
