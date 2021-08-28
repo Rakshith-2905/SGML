@@ -137,6 +137,7 @@ class MAML:
                     label_cat = tf.eye(5)
                     input_task_emb_cat = tf.concat((proto_emb, label_cat), axis=-1)
 
+
                 # graph_attention = tf.nn.softmax(self.graph_weights)
                 if FLAGS.datasource in ['2D']:
                     task_embed_vec, task_emb_loss = self.lstmae.model(input_task_emb)

@@ -255,10 +255,11 @@ def test(model, sess, data_generator):
 
     metaval_accuracies = []
 
-    graph_emb =[]
-    attention =[]
-    meta_graph = []
-    meta_graph_edges = []
+    proto_graph, task_emb_vector = [], [] 
+    meta_graph, meta_graph_edges, meta_graph_embedding  = [], [], []
+    euclidean_distance, attention = [], [] 
+    updated_proto_graph, updated_proto_graph_emb, proto_embedding_GCN_feature = [], [], []
+
     print("Total number of test iterations ", format(FLAGS.num_test_task))
 
     for test_itr in range(FLAGS.num_test_task):
@@ -278,26 +279,13 @@ def test(model, sess, data_generator):
         if model.classification:
             fetch = [[model.metaval_total_accuracy1] + model.metaval_total_accuracies2]
             
-            embedding_fetch = []
-            for level, graphs in enumerate(FLAGS.graph_list):
-                embedding_level = []
-                for graph_idx in range(graphs):
-                        if level == 0:
-                            embedding_level.append('model/level_{}_graph_{}_embedding:0'.format(level, graph_idx))
-                            pass
-                        else:
-                            embedding_level.append('model/level_{}_graph_{}_embedding_1:0'.format(level, graph_idx))
-                embedding_fetch.append(embedding_level)
-            fetch.append(embedding_fetch)
+            # fetch the prototype graph
+            fetch.append("model/concat:0")
 
-            attention_fetch = [['model/attention_l-1n0_to_l0:0']]
-            for level, graphs in enumerate(FLAGS.graph_list[:-1]):
-                attention_level = []
-                for graph_idx in range(graphs):
-                    attention_level.append('model/attention_l{}n{}_to_l{}:0'.format(level, graph_idx, level+1))
-                attention_fetch.append(attention_level)
-            fetch.append(attention_fetch)
+            # fetching the task embedding vector
+            fetch.append("model/Mean_6:0")
 
+            # fetch the tree_graph features and edges
             tree_graphs = []
             tree_graphs_edges = []
             for level, num_graphs in enumerate(FLAGS.graph_list):
@@ -314,62 +302,121 @@ def test(model, sess, data_generator):
             fetch.append(tree_graphs)
             fetch.append(tree_graphs_edges)
 
+            # Fetch the eucledian distance between the embedding of metagraph and the updated prototype graph
+            diff_fetch = []
+            for prev_level, prev_graphs in enumerate(FLAGS.graph_list[:-1]):
+                diff_level = []
+                for prev_graph_idx in range(prev_graphs):
+                        for curr_graph_index in range(FLAGS.graph_list[prev_level+1]):
+                            diff_level.append('model/level_{}_graph_{}_level_{}_graph_{}_euclid_diff:0'.format(
+                                prev_level, prev_graph_idx, prev_level+1, curr_graph_index))
+                diff_fetch.append(diff_level)
+            fetch.append(diff_fetch)
+
+            # Fetch the attention between the meta_graph and the updated prototype graph
+            attention_fetch = [['model/attention_l-1n0_to_l0:0']]
+            for level, graphs in enumerate(FLAGS.graph_list[:-1]):
+                attention_level = []
+                for graph_idx in range(graphs):
+                    attention_level.append('model/attention_l{}n{}_to_l{}:0'.format(level, graph_idx, level+1))
+                attention_fetch.append(attention_level)
+            fetch.append(attention_fetch)
+
+            # Fetch the updated prototype graph
+            upd_proto_graph = []
+            for level, graphs in enumerate(FLAGS.graph_list):
+                upd_proto_level = []
+                for graph_idx in range(graphs):
+                    upd_proto_level.append("model/unstack_{}:{}".format(level+1, graph_idx))
+                upd_proto_graph.append(upd_proto_level)
+            fetch.append(upd_proto_graph)
+
+            # Fetch the embeddings of the updated prototype graph
+            proto_embedding_fetch = []
+            for level, graphs in enumerate(FLAGS.graph_list):
+                proto_embedding_level = []
+                for graph_idx in range(graphs):
+                    proto_embedding_level.append('model/level_{}_graph_{}_embedding:0'.format(level, graph_idx))
+                proto_embedding_fetch.append(proto_embedding_level)
+            fetch.append(proto_embedding_fetch)
+            
+            # Fetch the embedding GCN updated feature matrix of proto 
+            proto_embedding_GCN_feature_fetch = []
+            for level, graphs in enumerate(FLAGS.graph_list):
+                proto_embedding_GCN_feature_level = []
+                for graph_idx in range(graphs):
+                    proto_embedding_GCN_feature_level.append('model/level_{}_graph_{}_proto_GCN_feature:0'.format(level, graph_idx))
+                proto_embedding_GCN_feature_fetch.append(proto_embedding_GCN_feature_level)
+            fetch.append(proto_embedding_GCN_feature_fetch)
+
             result = sess.run(fetch, feed_dict)
         else:
             result = sess.run([model.metaval_total_loss1] + model.metaval_total_losses2, feed_dict)
 
         metaval_accuracies.append(result[0])
-        graph_emb.append(result[1])
-        attention.append(result[2])
+        proto_graph.append(result[1])
+        task_emb_vector.append(result[2])
         meta_graph.append(result[3])
         meta_graph_edges.append(result[4])
+        euclidean_distance.append(result[5])
+        attention.append(result[6])
+        updated_proto_graph.append(result[7])
+        updated_proto_graph_emb.append(result[8])
+        proto_embedding_GCN_feature.append(result[9])
 
     print("\n")
     random_idx = random.randint(0,FLAGS.num_test_task)
+    # random_idx_b = random.randint(0,FLAGS.num_test_task)
     
-    # for i, num_graph in enumerate(FLAGS.graph_list):
-    #         level_graphs = meta_graph[random_idx][i]
-    #         level_graphs_edges = meta_graph_edges[random_idx][i]
-    #         for j in range(num_graph):
-    #             graph_a = np.array(level_graphs[j])
-    #             graph_a_edges = np.array(level_graphs_edges[j])
-    #             graph_a_embed = graph_embedding(graph_a,graph_a_edges)
-    #             for k in range(j, num_graph):
-    #                 graph_b = np.array(level_graphs[k])
-    #                 graph_b_edges = np.array(level_graphs_edges[k])
-    #                 graph_b_embed = graph_embedding(graph_b,graph_b_edges)
-    #                 dist = distance.euclidean(graph_a_embed, graph_b_embed)
-    #                 graph_dist = np.linalg.norm(graph_a - graph_b)
-    #                 if j == k:
-    #                     pass
-    #                 else:
-    #                     print("Level {} graph {} and graph {} embed distance {} graph dist {}".format(i, j, k, dist, graph_dist))
-    
+    # print("Random 1: {}, Random 2: {}".format(random_idx, random_idx_b))
+    # # Comparing proto graphs and task Representations of two different tasks
+    # print("Eucledian distance between proto graphs of two different tasks: ", np.linalg.norm(np.array(proto_graph[random_idx])-np.array(proto_graph[random_idx_b])))
+    # print("Eucledian distance between task representation vectors of two different tasks: ", np.linalg.norm(np.array(task_emb_vector[random_idx])-np.array(task_emb_vector[random_idx_b])))
     # print("\n")
-    # for i, num_graph in enumerate(FLAGS.graph_list):
-    #         level_graphs = meta_graph[random_idx][i]
-    #         level_graphs_edges = meta_graph_edges[random_idx][i]
-    #         for j in range(num_graph):
-    #             graph_a = np.array(level_graphs[j])
-    #             graph_a_edges = np.array(level_graphs_edges[j])
-    #             graph_a_embed = graph_embedding(graph_a, graph_a_edges)
-    #             if i >0:
-    #                 for k in range(FLAGS.graph_list[i-1]):
-    #                     graph_b = np.array(meta_graph[random_idx][i-1][k])
-    #                     graph_b_edges = np.array(meta_graph_edges[random_idx][i-1][k])
-    #                     graph_b_embed = graph_embedding(graph_b, graph_b_edges)
-    #                     dist = distance.euclidean(graph_a_embed, graph_b_embed)
-    #                     graph_dist = np.linalg.norm(graph_a - graph_b)
+    # # The difference between the task representation and the meta graph representation
+    # for i in range(len(euclidean_distance[random_idx])):
+    #     for j in range(len(euclidean_distance[random_idx][i])):
+    #         print("difference between the task representation and the meta graph representation for task a: {}, task b: {}".format(
+    #             euclidean_distance[random_idx][i][j], euclidean_distance[random_idx_b][i][j]
+    #         ))
 
-    #                     soft_attention = np.exp(-np.sum(np.square(graph_a_embed- graph_b_embed)) / (2.0 * 2.0))
-    #                     print("Level {} graph {} and level {} graph {} embed distance {} graph dist {} attention {}".format(
-    #                         i-1, k, i, j, dist, graph_dist, soft_attention))
+    # print("\n")
+
+    # # Comparing attention of two different tasks at each level.
+    # for i in range(len(attention[random_idx])):
+    #     for j in range(len(attention[random_idx][i][0])):
+    #         print("Attention at level {} graph {}: task a {}, task b {}".format(i,j,
+    #             attention[random_idx][i][j], attention[random_idx_b][i][j]
+    #         ))
+
+    # print("\n")
+    # # Comparing updated prototype graph of two different tasks at each level of update
+    # for i in range(len(updated_proto_graph[random_idx])):
+    #     for j in range(len(updated_proto_graph[random_idx][i])):
+    #         print("Eucledian distance between updated proto graphs of two different tasks at level {} graph {}: {}".format(i,j,
+    #             np.linalg.norm(np.array(updated_proto_graph[random_idx][i][j])-np.array(updated_proto_graph[random_idx_b][i][j]))))
+    # print("\n")
+
+    # # Comparing updated prototype graph embedding of two different tasks at each level of update
+    # for i in range(len(updated_proto_graph_emb[random_idx])):
+    #     for j in range(len(updated_proto_graph_emb[random_idx][i])):
+    #         print("Eucledian distance between updated proto graphs embedding of two different tasks at level {} graph {}: {}".format(i,j,
+    #             np.linalg.norm(np.array(updated_proto_graph_emb[random_idx][i][j])-np.array(updated_proto_graph_emb[random_idx_b][i][j]))))
+    # print("\n")
+
+    # # Comparing the embedding GCN network updated features of proto embedding function
+    # for i in range(len(proto_embedding_GCN_feature[random_idx])):
+    #     for j in range(len(proto_embedding_GCN_feature[random_idx][i])):
+    #         print("Eucledian distance between embedding GCN network features for updated proto embedding of level {} graph {}: {}".format(i,j,
+    #             np.linalg.norm(np.array(proto_embedding_GCN_feature[random_idx][i][j])-np.array(proto_embedding_GCN_feature[random_idx_b][i][j]))))
+
+    # Comparing the multiple prototype graph at each level
+    print("\n")
+    print(len(attention[0][1]), len(attention[0][0]))
+    for i in range(len(attention[0])):
+        for j in range(len(attention[0][i])):
+            print("attention between level {} and level {}: {}".format(i, i+1, attention[0][i]))
     
-    print("\n")
-    for i in range(len(attention[random_idx])):
-        print("attention between level {} and level {}: {}".format(i, i+1, attention[random_idx][i]))
-
-    print("\n")
     metaval_accuracies = np.array(metaval_accuracies)
     means = np.mean(metaval_accuracies, 0)
     stds = np.std(metaval_accuracies, 0)
