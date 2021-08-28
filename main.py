@@ -299,49 +299,25 @@ def test(model, sess, data_generator):
 
     print("\n")
     random_idx = random.randint(0,FLAGS.num_test_task)
-    
-    for i, num_graph in enumerate(FLAGS.graph_list):
-            level_graphs = meta_graph[random_idx][i]
-            level_graphs_edges = meta_graph_edges[random_idx][i]
-            for j in range(num_graph):
-                graph_a = np.array(level_graphs[j])
-                graph_a_edges = np.array(level_graphs_edges[j])
-                graph_a_embed = graph_embedding(graph_a,graph_a_edges)
-                for k in range(j, num_graph):
-                    graph_b = np.array(level_graphs[k])
-                    graph_b_edges = np.array(level_graphs_edges[k])
-                    graph_b_embed = graph_embedding(graph_b,graph_b_edges)
-                    dist = distance.euclidean(graph_a_embed, graph_b_embed)
-                    graph_dist = np.linalg.norm(graph_a - graph_b)
-                    if j == k:
-                        pass
-                    else:
-                        print("Level {} graph {} and graph {} embed distance {} graph dist {}".format(i, j, k, dist, graph_dist))
-    
-    print("\n")
-    for i, num_graph in enumerate(FLAGS.graph_list):
-            level_graphs = meta_graph[random_idx][i]
-            level_graphs_edges = meta_graph_edges[random_idx][i]
-            for j in range(num_graph):
-                graph_a = np.array(level_graphs[j])
-                graph_a_edges = np.array(level_graphs_edges[j])
-                graph_a_embed = graph_embedding(graph_a, graph_a_edges)
-                if i >0:
-                    for k in range(FLAGS.graph_list[i-1]):
-                        graph_b = np.array(meta_graph[random_idx][i-1][k])
-                        graph_b_edges = np.array(meta_graph_edges[random_idx][i-1][k])
-                        graph_b_embed = graph_embedding(graph_b, graph_b_edges)
-                        dist = distance.euclidean(graph_a_embed, graph_b_embed)
-                        graph_dist = np.linalg.norm(graph_a - graph_b)
+    attention_sample = 100
 
-                        soft_attention = np.exp(-np.sum(np.square(graph_a_embed- graph_b_embed)) / (2.0 * 2.0))
-                        print("Level {} graph {} and level {} graph {} embed distance {} graph dist {} attention {}".format(
-                            i-1, k, i, j, dist, graph_dist, soft_attention))
-    
-    print("\n")
-    for i in range(len(attention[random_idx])):
-        print("attention between level {} and level {}: {}".format(i, i+1, attention[random_idx][i]))
+    att_dict = {}
+    for idx in range(100):
+        for i in range(len(attention[0])):
+            if i not in att_dict: att_dict[i] = {}
+            for j in range(len(attention[0][i])):
+                if j not in att_dict[i]: att_dict[i][j] = []
+                att_dict[i][j].append(attention[idx][i][j])
 
+    print('\n')
+    for i in range(len(attention[0])):
+        for j in range(len(attention[0][i])): 
+            print("attention between level {} and level {} graph {}: {}".format(i, i+1, j, attention[random_idx][i][j]))
+    
+    print("\n Attention evaluated for {} test tasks\n".format(attention_sample))    
+    for i in range(len(attention[0])):
+        for j in range(len(attention[0][i])): 
+            print("attention between level {} and level {} graph {}: {}".format(i, i+1, j, np.mean(np.array(att_dict[i][j]), axis=0)))
     print("\n")
     metaval_accuracies = np.array(metaval_accuracies)
     means = np.mean(metaval_accuracies, 0)
