@@ -221,11 +221,11 @@ class TreeGraph(object):
                 # Do an sigmoid operation on the attentions
                 soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
                 # Drop the min_value of attention and renormalize the attention
-                # if (len(level) > 2):
-                #     min_value = tf.math.reduce_min(soft_attention)
-                #     zero = tf.zeros(soft_attention.shape)
-                #     soft_attention_drop = tf.where(soft_attention>min_value, soft_attention, zero)
-                #     soft_attention = soft_attention_drop/tf.reduce_sum(soft_attention_drop)
+                if (len(level) > 2):
+                    min_value = tf.math.reduce_min(soft_attention)
+                    zero = tf.zeros(soft_attention.shape)
+                    soft_attention_drop = tf.where(soft_attention>min_value, soft_attention, zero)
+                    soft_attention = soft_attention_drop/tf.reduce_sum(soft_attention_drop)
                 soft_attention = tf.identity(soft_attention, name='attention_l{}n{}_to_l{}'.format(i-1, j, i))
                 # Iterate through the current level meta graphs
                 temp_updated_graphs = []
