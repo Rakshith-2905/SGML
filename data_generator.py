@@ -31,6 +31,9 @@ class DataGenerator(object):
             self.dim_input = np.prod(self.img_size) * 3
             self.dim_output = self.num_classes
             self.plainmulti = ['CUB_Bird', 'DTD_Texture', 'FGVC_Aircraft', 'FGVCx_Fungi', 'GTSRB', 'vgg_flower']
+
+            print("\n\nDatasets trained and tested on: \n\n", [self.plainmulti[i]\
+                for i in range(self.num_datasets)])
             # random.shuffle(self.plainmulti)
             metatrain_folders, metaval_folders = [], []
             for eachdataset in self.plainmulti:

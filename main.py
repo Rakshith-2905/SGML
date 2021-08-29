@@ -227,7 +227,7 @@ def main():
         if model_file:
             print("Restoring model weights from " + model_file)
             saver.restore(sess, model_file)
-    resume_itr = 0
+    resume_itr = FLAGS.test_epoch
 
     if FLAGS.train:
         train(model, saver, sess, exp_string, data_generator, resume_itr)
