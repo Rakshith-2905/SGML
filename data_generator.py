@@ -14,10 +14,11 @@ FLAGS = flags.FLAGS
 
 
 class DataGenerator(object):
-    def __init__(self, num_samples_per_class, batch_size, config={}):
+    def __init__(self, num_samples_per_class, batch_size, config={}, num_datasets=2):
         self.batch_size = batch_size
         self.num_samples_per_class = num_samples_per_class
         self.num_classes = 1  # by default 1 (only relevant for classification problems)
+        self.num_datasets = num_datasets
 
         if FLAGS.datasource == '2D':
             self.dim_input = 2
@@ -29,7 +30,8 @@ class DataGenerator(object):
             self.img_size = config.get('img_size', (84, 84))
             self.dim_input = np.prod(self.img_size) * 3
             self.dim_output = self.num_classes
-            self.plainmulti = ['CUB_Bird', 'DTD_Texture', 'FGVC_Aircraft', 'FGVCx_Fungi']
+            self.plainmulti = ['CUB_Bird', 'DTD_Texture', 'FGVC_Aircraft', 'FGVCx_Fungi', 'GTSRB', 'vgg_flower']
+            # random.shuffle(self.plainmulti)
             metatrain_folders, metaval_folders = [], []
             for eachdataset in self.plainmulti:
                 metatrain_folders.append(
@@ -102,21 +104,18 @@ class DataGenerator(object):
             folders = self.metaval_character_folders
             num_total_batches = FLAGS.num_test_task
         
-        if FLAGS.hetrogeneous:
-            folders = sum(folders, [])
-            random.shuffle(folders)
         # make list of files
         print('Generating filenames')
         all_filenames = []
         for image_itr in range(num_total_batches):
-            sel = np.random.randint(4)
+            if FLAGS.hetrogeneous:
+                sel = np.random.randint(self.num_datasets)
+            else:
+                sel = np.random.randint(4)
             if FLAGS.train == False and FLAGS.test_dataset != -1:
                 sel = FLAGS.test_dataset
             
-            if FLAGS.hetrogeneous:
-                sampled_character_folders = random.sample(folders, self.num_classes)
-            else:
-                sampled_character_folders = random.sample(folders[sel], self.num_classes)
+            sampled_character_folders = random.sample(folders[sel], self.num_classes)
 
             random.shuffle(sampled_character_folders)
             labels_and_images = get_images(sampled_character_folders, range(self.num_classes),
