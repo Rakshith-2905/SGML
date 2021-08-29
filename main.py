@@ -1,4 +1,5 @@
 import random
+import time
 
 import numpy as np
 import tensorflow as tf
@@ -64,6 +65,7 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
 
     prelosses, postlosses, embedlosses = [], [], []
 
+    start_time = time.time()
     num_classes = data_generator.num_classes
 
     for itr in range(resume_itr, FLAGS.metatrain_iterations):
@@ -93,9 +95,12 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
             std = np.std(postlosses, 0)
             ci95 = 1.96 * std / np.sqrt(PRINT_INTERVAL)
             print_str += ': preloss: ' + str(np.mean(prelosses)) + ', postloss: ' + str(
-                np.mean(postlosses)) + ', embedding loss: ' + str(np.mean(embedlosses)) + ', confidence: ' + str(ci95)
+                np.mean(postlosses)) + ', embedding loss: ' + str(np.mean(embedlosses)) + ', confidence: ' + str(ci95) + ', timeTaken: ' + str(
+                time.time() - start_time) + ' secs, estimatedRemainingTime: ' + str(
+                (time.time() - start_time)*((FLAGS.metatrain_iterations-itr)/PRINT_INTERVAL)/3600) + ' hrs'
 
             print(print_str)
+            start_time = time.time()
             prelosses, postlosses, embedlosses = [], [], []
 
         if (itr != 0) and itr % SAVE_INTERVAL == 0:
