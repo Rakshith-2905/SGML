@@ -62,7 +62,7 @@ flags.DEFINE_bool('DEBUG', False, 'Print the difference between the graphs of di
 
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
-    SAVE_INTERVAL = 1000
+    SAVE_INTERVAL = 10000
     if FLAGS.datasource in ['2D']:
         PRINT_INTERVAL = 1000
     else:
@@ -310,6 +310,7 @@ def test(model, sess, data_generator):
                 att_dict[i][j].append(attention[idx][i][j])
 
     print('\n')
+    print("Attention evaluated for a random task\n")    
     for i in range(len(attention[0])):
         for j in range(len(attention[0][i])): 
             print("attention between level {} and level {} graph {}: {}".format(i, i+1, j, attention[random_idx][i][j]))
@@ -317,7 +318,7 @@ def test(model, sess, data_generator):
     print("\n Attention evaluated for {} test tasks\n".format(attention_sample))    
     for i in range(len(attention[0])):
         for j in range(len(attention[0][i])): 
-            print("attention between level {} and level {} graph {}: {}".format(i, i+1, j, np.mean(np.array(att_dict[i][j]), axis=0)))
+            print("attention between level {} and level {} graph {}: mean: {} std: {}".format(i, i+1, j, np.mean(np.array(att_dict[i][j]), axis=0), np.std(np.array(att_dict[i][j]), axis=0)))
     print("\n")
     metaval_accuracies = np.array(metaval_accuracies)
     means = np.mean(metaval_accuracies, 0)
