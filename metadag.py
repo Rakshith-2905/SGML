@@ -61,6 +61,10 @@ class MetaGraph(object):
                 if idx_i == idx_j:
                     dist = tf.squeeze(tf.zeros([1]))
                 else:
+
+                    # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
+                    #     tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
+                    #     name='meta_dist_' + name + '_node_' + str(idx_i)+ '_to_' + str(idx_j))))
                     dist = tf.squeeze(tf.sigmoid(
                         tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
                         name='meta_dist'))
@@ -222,21 +226,21 @@ class TreeGraph(object):
                 # Iterate over the updated prototype graph and embeddings from the previous level
                 for j, prev_level_updated_graph, prev_level_updated_embedding in zip(range(len(tree_embeddings[-1])), tree_graphs[-1], tree_embeddings[-1]):
 
-                    # # Compute the soft assignment between the current level meta graphs and the updated prototype graph
-                    # soft_attention = []
-                    # for k, graph in enumerate(level):
-                    #     # Compute the embedding for the current graph
-                    #     current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
-                    #     current_embedding = self.graph_embedding(current_graph, graph.compute_metagraph_edges(), i, k) 
-                    #     euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
-                    #     ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))  
-                    #     soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
-                    # # Do an sigmoid operation on the attentions
-                    # soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
+                    # Compute the soft assignment between the current level meta graphs and the updated prototype graph
+                    soft_attention = []
+                    for k, graph in enumerate(level):
+                        # Compute the embedding for the current graph
+                        current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
+                        current_embedding = self.graph_embedding(current_graph, graph.compute_metagraph_edges(), i, k) 
+                        euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
+                        ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))  
+                        soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
+                    # Do an sigmoid operation on the attentions
+                    soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
 
-                    # equal attention
-                    soft_attention = tf.ones(len(level))
-                    soft_attention = soft_attention/tf.reduce_sum(soft_attention)
+                    # # equal attention
+                    # soft_attention = tf.ones(len(level))
+                    # soft_attention = soft_attention/tf.reduce_sum(soft_attention)
                 
                     soft_attention = tf.identity(soft_attention, name='attention_l{}n{}_to_l{}'.format(i-1, j, i))
                     # Iterate through the current level meta graphs

@@ -46,7 +46,7 @@ flags.DEFINE_bool('stop_grad', False, 'if True, do not use second derivatives in
 flags.DEFINE_float('emb_loss_weight', 0.0, 'the weight of autoencoder')
 flags.DEFINE_integer('task_embedding_num_filters', 32, 'number of filters for task embedding')
 ## Graph information
-flags.DEFINE_list('graph_list', [1,2,1], 'list of nodes in each level')
+flags.DEFINE_list('graph_list', [1,3,1], 'list of nodes in each level')
 flags.DEFINE_integer('num_graph_vertex', 4, 'number of vertex for each of the graphs in all the layers')
 flags.DEFINE_bool('eigen_embedding', False, 'Method for embedding the meta graph')
 
@@ -247,17 +247,17 @@ def test(model, sess, data_generator):
         if model.classification:
             fetch = [[model.metaval_total_accuracy1] + model.metaval_total_accuracies2]
             
-            embedding_fetch = []
-            for level, graphs in enumerate(FLAGS.graph_list):
-                embedding_level = []
-                for graph_idx in range(graphs):
-                        if level == 0:
-                            embedding_level.append('model/level_{}_graph_{}_embedding:0'.format(level, graph_idx))
-                            pass
-                        else:
-                            embedding_level.append('model/level_{}_graph_{}_embedding_1:0'.format(level, graph_idx))
-                embedding_fetch.append(embedding_level)
-            fetch.append(embedding_fetch)
+            # embedding_fetch = []
+            # for level, graphs in enumerate(FLAGS.graph_list):
+            #     embedding_level = []
+            #     for graph_idx in range(graphs):
+            #             if level == 0:
+            #                 embedding_level.append('model/level_{}_graph_{}_embedding:0'.format(level, graph_idx))
+            #                 pass
+            #             else:
+            #                 embedding_level.append('model/level_{}_graph_{}_embedding_1:0'.format(level, graph_idx))
+            #     embedding_fetch.append(embedding_level)
+            # fetch.append(embedding_fetch)
 
             attention_fetch = []
             for level, graphs in enumerate(FLAGS.graph_list[:-1]):
@@ -267,31 +267,31 @@ def test(model, sess, data_generator):
                 attention_fetch.append(attention_level)
             fetch.append(attention_fetch)
 
-            tree_graphs = []
-            tree_graphs_edges = []
-            for level, num_graphs in enumerate(FLAGS.graph_list):
-                graph_list = []
-                graph_edges_list = []
-                for graph_idx in range(num_graphs):
-                    node_list = []
-                    graph_edges_list.append('meta_graph_edges_level_{}_graph_{}:0'.format(level, graph_idx))
-                    for node in range(FLAGS.num_graph_vertex):
-                        node_list.append('level_{}_graph_{}_{}_node_cluster_center:0'.format(level, graph_idx, node))
-                    graph_list.append(node_list)
-                tree_graphs.append(graph_list)
-                tree_graphs_edges.append(graph_edges_list)
-            fetch.append(tree_graphs)
-            fetch.append(tree_graphs_edges)
+            # tree_graphs = []
+            # tree_graphs_edges = []
+            # for level, num_graphs in enumerate(FLAGS.graph_list):
+            #     graph_list = []
+            #     graph_edges_list = []
+            #     for graph_idx in range(num_graphs):
+            #         node_list = []
+            #         graph_edges_list.append('meta_graph_edges_level_{}_graph_{}:0'.format(level, graph_idx))
+            #         for node in range(FLAGS.num_graph_vertex):
+            #             node_list.append('level_{}_graph_{}_{}_node_cluster_center:0'.format(level, graph_idx, node))
+            #         graph_list.append(node_list)
+            #     tree_graphs.append(graph_list)
+            #     tree_graphs_edges.append(graph_edges_list)
+            # fetch.append(tree_graphs)
+            # fetch.append(tree_graphs_edges)
 
             result = sess.run(fetch, feed_dict)
         else:
             result = sess.run([model.metaval_total_loss1] + model.metaval_total_losses2, feed_dict)
 
         metaval_accuracies.append(result[0])
-        graph_emb.append(result[1])
-        attention.append(result[2])
-        meta_graph.append(result[3])
-        meta_graph_edges.append(result[4])
+        # graph_emb.append(result[1])
+        attention.append(result[1])
+        # meta_graph.append(result[3])
+        # meta_graph_edges.append(result[4])
 
     print("\n")
     random_idx = random.randint(0,FLAGS.num_test_task)
