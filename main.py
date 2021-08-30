@@ -46,8 +46,8 @@ flags.DEFINE_bool('stop_grad', False, 'if True, do not use second derivatives in
 flags.DEFINE_float('emb_loss_weight', 0.0, 'the weight of autoencoder')
 flags.DEFINE_integer('task_embedding_num_filters', 32, 'number of filters for task embedding')
 ## Graph information
-flags.DEFINE_list('graph_list', [1,2,1], 'list of nodes in each level')
-flags.DEFINE_integer('num_graph_vertex', 5, 'number of vertex for each of the graphs in all the layers')
+flags.DEFINE_list('graph_list', [3,1], 'list of nodes in each level')
+flags.DEFINE_integer('num_graph_vertex', 4, 'number of vertex for each of the graphs in all the layers')
 flags.DEFINE_bool('eigen_embedding', False, 'Method for embedding the meta graph')
 
 ## Logging, saving, and testing options
