@@ -51,6 +51,9 @@ class MetaGraph(object):
                                                             shape=(1, input_dim)))
         self.vertex_num = FLAGS.num_graph_vertex
 
+        self.GCN = GraphConvolution(self.hidden_dim, name='graph_{}_data_gcn'.format(name))
+    
+    def compute_metagraph_edges(self,):
         meta_graph = []
         for idx_i in range(self.vertex_num):
             tmp_dist = []
@@ -58,17 +61,13 @@ class MetaGraph(object):
                 if idx_i == idx_j:
                     dist = tf.squeeze(tf.zeros([1]))
                 else:
-                    # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                    #     tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
-                    #     name='meta_dist_' + name + '_node_' + str(idx_i)+ '_to_' + str(idx_j))))
                     dist = tf.squeeze(tf.sigmoid(
                         tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
                         name='meta_dist'))
                 tmp_dist.append(dist)
             meta_graph.append(tf.stack(tmp_dist))
-        self.meta_graph_edges = tf.stack(meta_graph, name='meta_graph_edges_' + name)
-
-        self.GCN = GraphConvolution(self.hidden_dim, name='graph_{}_data_gcn'.format(name))
+        meta_graph_edges = tf.stack(meta_graph, name='meta_graph_edges')
+        return meta_graph_edges
 
     def model(self, inputs):
         """
@@ -94,6 +93,8 @@ class MetaGraph(object):
         cross_graph = tf.transpose(cross_graph, perm=[1, 0])
         # print("cross_graph ", cross_graph)
 
+        self.meta_graph_edges = self.compute_metagraph_edges()
+
         # print("meta_graph ", meta_graph)
         proto_graph = []
         for idx_i in range(self.proto_num):
@@ -102,8 +103,6 @@ class MetaGraph(object):
                 if idx_i == idx_j:
                     dist = tf.squeeze(tf.zeros([1]))
                 else:
-                    # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                    #     tf.abs(tf.expand_dims(inputs[idx_i] - inputs[idx_j], axis=0)), units=1, name='proto_dist')))
                     dist = tf.squeeze(tf.sigmoid(
                         tf.math.reduce_euclidean_norm(inputs[idx_i] - inputs[idx_j]),name='proto_dist'))
                 tmp_dist.append(dist)
@@ -136,7 +135,7 @@ class TreeGraph(object):
                 level_list.append(MetaGraph(input_dim=FLAGS.hidden_dim, hidden_dim=FLAGS.hidden_dim, name='level_{}_graph_{}'.format(str(i), str(j))))
             self.graph_tree.append(level_list)
             
-    def graph_embedding(self, graph_nodes, graph_edges, level_num, graph_num):
+    def graph_embedding(self, graph_nodes, inp_graph_edges, level_num, graph_num):
         """
         Computes an embedding for the given graph nodes. 
 
@@ -150,7 +149,8 @@ class TreeGraph(object):
         ------
         embedding : Tensor, shape: [1, embedding_dims]
         """
-        if graph_edges == None:
+
+        if inp_graph_edges == None:
             # Compute the edges/affinity between nodes of the graph to be embedded
             graph_connections = []
             for idx_i in range(FLAGS.num_classes):
@@ -158,14 +158,15 @@ class TreeGraph(object):
                 for idx_j in range(FLAGS.num_classes):
                     if idx_i == idx_j:
                         dist = tf.squeeze(tf.zeros([1]))
-                    else:
-                        dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                            tf.abs(tf.expand_dims(graph_nodes[idx_i] - graph_nodes[idx_j], axis=0)), units=1, name='proto_dist')))
+                    else:                    
+                        dist = tf.squeeze(tf.sigmoid(
+                            tf.math.reduce_euclidean_norm(graph_nodes[idx_i] - graph_nodes[idx_j]),name='proto_dist'))
                     tmp_dist.append(dist)
                 graph_connections.append(tf.stack(tmp_dist))
 
-            graph_edges = tf.stack(graph_connections)
-
+            graph_edges = tf.stack(graph_connections, name='proto_l{}_g{}_edges'.format(level_num, graph_num))
+        else:
+            graph_edges = inp_graph_edges
         # feature matrix is obtained as the product of degree-normalized adjacency matrix and graph nodes
         if not self.eigen_embedding:
             node_size = tf.shape(graph_edges)[0]
@@ -173,6 +174,8 @@ class TreeGraph(object):
             adj = graph_edges + I
             D = tf.diag(tf.reduce_sum(adj, axis=1))
             adj = tf.matmul(tf.linalg.inv(D), adj)
+            # Normalizing by degree sum(adj, axis=0) is degree of that row
+            # adj = adj / tf.reduce_sum(adj, axis=0)
             feature_matrix = tf.matmul(adj, graph_nodes)
         else:
             # Kroneckers product of the eigen vectors of affinity matrix and the graph nodes
@@ -180,7 +183,12 @@ class TreeGraph(object):
             feature_matrix = tf_kron(graph_nodes, eigen_vectors)
 
         # Mean of the feature matrix
-        embedding = tf.math.reduce_mean(feature_matrix, axis=0, name='level_{}_graph_{}_embedding'.format(level_num, graph_num))
+        embedding = tf.math.reduce_mean(feature_matrix, axis=0)
+        
+        if inp_graph_edges == None:
+            feature_matrix = tf.identity(feature_matrix, name='level_{}_graph_{}_proto_GCN_feature'.format(level_num, graph_num))
+            embedding = tf.identity(embedding, name='level_{}_graph_{}_embedding'.format(level_num, graph_num))
+        
         return  embedding
 
     def model(self, inputs):
@@ -214,21 +222,21 @@ class TreeGraph(object):
                 # Iterate over the updated prototype graph and embeddings from the previous level
                 for j, prev_level_updated_graph, prev_level_updated_embedding in zip(range(len(tree_embeddings[-1])), tree_graphs[-1], tree_embeddings[-1]):
 
-                    # Compute the soft assignment between the current level meta graphs and the updated prototype graph
-                    soft_attention = []
-                    for k, graph in enumerate(level):
-                        # Compute the embedding for the current graph
-                        current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
-                        current_embedding = self.graph_embedding(current_graph, graph.meta_graph_edges, i, k) 
-                        euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
-                        ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))  
-                        soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
-                    # Do an sigmoid operation on the attentions
-                    soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
+                    # # Compute the soft assignment between the current level meta graphs and the updated prototype graph
+                    # soft_attention = []
+                    # for k, graph in enumerate(level):
+                    #     # Compute the embedding for the current graph
+                    #     current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
+                    #     current_embedding = self.graph_embedding(current_graph, graph.compute_metagraph_edges(), i, k) 
+                    #     euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
+                    #     ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))  
+                    #     soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
+                    # # Do an sigmoid operation on the attentions
+                    # soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
 
-                    # # equal attention
-                    # soft_attention = tf.ones_like(soft_attention)
-                    # soft_attention = soft_attention/tf.reduce_sum(soft_attention)
+                    # equal attention
+                    soft_attention = tf.ones(len(level))
+                    soft_attention = soft_attention/tf.reduce_sum(soft_attention)
                 
                     soft_attention = tf.identity(soft_attention, name='attention_l{}n{}_to_l{}'.format(i-1, j, i))
                     # Iterate through the current level meta graphs
@@ -246,7 +254,7 @@ class TreeGraph(object):
                 updated_proto_graphs = tf.unstack(updated_proto_graphs, axis=0)
                 # Compute the embedding for the updated prototype graphs of the current level
                 for k, graph in enumerate(updated_proto_graphs):
-                    updated_proto_embeddings.append(self.graph_embedding(graph, graph_edges=None, level_num=i, graph_num=k))
+                    updated_proto_embeddings.append(self.graph_embedding(graph, inp_graph_edges=None, level_num=i, graph_num=k))
 
             # Update the history of updated prototype graph and embeddings list 
             tree_graphs.append(updated_proto_graphs)
