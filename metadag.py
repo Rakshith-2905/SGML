@@ -225,6 +225,11 @@ class TreeGraph(object):
                         soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
                     # Do an sigmoid operation on the attentions
                     soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
+
+                    # # equal attention
+                    # soft_attention = tf.ones_like(soft_attention)
+                    # soft_attention = soft_attention/tf.reduce_sum(soft_attention)
+                
                     soft_attention = tf.identity(soft_attention, name='attention_l{}n{}_to_l{}'.format(i-1, j, i))
                     # Iterate through the current level meta graphs
                     temp_updated_graphs = []
