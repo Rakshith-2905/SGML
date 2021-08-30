@@ -28,8 +28,9 @@ class GraphConvolution(object):
         node_size = tf.shape(adj)[0]
         I = tf.eye(node_size)
         adj = adj + I
-        D = tf.diag(tf.reduce_sum(adj, axis=1))
-        adj = tf.matmul(tf.linalg.inv(D), adj)
+        # D = tf.diag(tf.reduce_sum(adj, axis=1))
+        # adj = tf.matmul(tf.linalg.inv(D), adj)
+        adj = adj / tf.reduce_sum(adj, axis=0)
         pre_sup = tf.matmul(x, self.gcn_weights)
         output = tf.matmul(adj, pre_sup)
         if self.bias:
@@ -51,6 +52,9 @@ class MetaGraph(object):
                                                             shape=(1, input_dim)))
         self.vertex_num = FLAGS.num_graph_vertex
 
+        self.GCN = GraphConvolution(self.hidden_dim, name='graph_{}_data_gcn'.format(name))
+    
+    def compute_metagraph_edges(self,):
         meta_graph = []
         for idx_i in range(self.vertex_num):
             tmp_dist = []
@@ -58,14 +62,13 @@ class MetaGraph(object):
                 if idx_i == idx_j:
                     dist = tf.squeeze(tf.zeros([1]))
                 else:
-                    dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                        tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
-                        name='meta_dist_' + name + '_node_' + str(idx_i)+ '_to_' + str(idx_j))))
+                    dist = tf.squeeze(tf.sigmoid(
+                        tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
+                        name='meta_dist'))
                 tmp_dist.append(dist)
             meta_graph.append(tf.stack(tmp_dist))
-        self.meta_graph_edges = tf.stack(meta_graph, name='meta_graph_edges_' + name)
-
-        self.GCN = GraphConvolution(self.hidden_dim, name='graph_{}_data_gcn'.format(name))
+        meta_graph_edges = tf.stack(meta_graph, name='meta_graph_edges')
+        return meta_graph_edges
 
     def model(self, inputs):
         """
@@ -91,6 +94,8 @@ class MetaGraph(object):
         cross_graph = tf.transpose(cross_graph, perm=[1, 0])
         # print("cross_graph ", cross_graph)
 
+        self.meta_graph_edges = self.compute_metagraph_edges()
+
         # print("meta_graph ", meta_graph)
         proto_graph = []
         for idx_i in range(self.proto_num):
@@ -99,8 +104,8 @@ class MetaGraph(object):
                 if idx_i == idx_j:
                     dist = tf.squeeze(tf.zeros([1]))
                 else:
-                    dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                        tf.abs(tf.expand_dims(inputs[idx_i] - inputs[idx_j], axis=0)), units=1, name='proto_dist')))
+                    dist = tf.squeeze(tf.sigmoid(
+                        tf.math.reduce_euclidean_norm(inputs[idx_i] - inputs[idx_j]),name='proto_dist'))
                 tmp_dist.append(dist)
             proto_graph.append(tf.stack(tmp_dist))
         proto_graph = tf.stack(proto_graph)
@@ -131,7 +136,7 @@ class TreeGraph(object):
                 level_list.append(MetaGraph(input_dim=FLAGS.hidden_dim, hidden_dim=FLAGS.hidden_dim, name='level_{}_graph_{}'.format(str(i), str(j))))
             self.graph_tree.append(level_list)
             
-    def graph_embedding(self, graph_nodes, graph_edges, level_num, graph_num):
+    def graph_embedding(self, graph_nodes, inp_graph_edges, level_num, graph_num):
         """
         Computes an embedding for the given graph nodes. 
 
@@ -145,7 +150,7 @@ class TreeGraph(object):
         ------
         embedding : Tensor, shape: [1, embedding_dims]
         """
-        if graph_edges == None:
+        if inp_graph_edges == None:
             # Compute the edges/affinity between nodes of the graph to be embedded
             graph_connections = []
             for idx_i in range(FLAGS.num_classes):
@@ -153,21 +158,24 @@ class TreeGraph(object):
                 for idx_j in range(FLAGS.num_classes):
                     if idx_i == idx_j:
                         dist = tf.squeeze(tf.zeros([1]))
-                    else:
-                        dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                            tf.abs(tf.expand_dims(graph_nodes[idx_i] - graph_nodes[idx_j], axis=0)), units=1, name='proto_dist_l{}_g{}'.format(level_num, graph_num))))
+                    else:                    
+                        dist = tf.squeeze(tf.sigmoid(
+                            tf.math.reduce_euclidean_norm(graph_nodes[idx_i] - graph_nodes[idx_j]),name='proto_dist'))
                     tmp_dist.append(dist)
                 graph_connections.append(tf.stack(tmp_dist))
 
             graph_edges = tf.stack(graph_connections, name='proto_l{}_g{}_edges'.format(level_num, graph_num))
-
+        else:
+            graph_edges = inp_graph_edges
         # feature matrix is obtained as the product of degree-normalized adjacency matrix and graph nodes
         if not self.eigen_embedding:
             node_size = tf.shape(graph_edges)[0]
             I = tf.eye(node_size)
             adj = graph_edges + I
-            D = tf.diag(tf.reduce_sum(adj, axis=1), name='degree_mat_l{}_g{}'.format(level_num, graph_num))
-            adj = tf.matmul(tf.linalg.inv(D), adj)
+            # D = tf.diag(tf.reduce_sum(adj, axis=0), name='degree_mat_l{}_g{}'.format(level_num, graph_num))
+            # adj = tf.matmul(tf.linalg.inv(D), adj)
+            # Normalizing by degree sum(adj, axis=0) is degree of that row
+            adj = adj / tf.reduce_sum(adj, axis=0)
             feature_matrix = tf.matmul(adj, graph_nodes)
         else:
             # Kroneckers product of the eigen vectors of affinity matrix and the graph nodes
@@ -175,10 +183,15 @@ class TreeGraph(object):
             feature_matrix = tf_kron(graph_nodes, eigen_vectors)
 
         # Mean of the feature matrix
-        embedding = tf.math.reduce_mean(feature_matrix, axis=0, name='level_{}_graph_{}_embedding'.format(level_num, graph_num))
+        embedding = tf.math.reduce_mean(feature_matrix, axis=0)
+        
+        if inp_graph_edges == None:
+            feature_matrix = tf.identity(feature_matrix, name='level_{}_graph_{}_proto_GCN_feature'.format(level_num, graph_num))
+            embedding = tf.identity(embedding, name='level_{}_graph_{}_embedding'.format(level_num, graph_num))
+        
         return  embedding
 
-    def model(self, inputs, proto_emb):
+    def model(self, inputs):
         """
         Computes proto_graph, Meta graph, and super_graph
         pass message between the super_graph and proto_graph using GNN
@@ -193,7 +206,7 @@ class TreeGraph(object):
         """
         sigma = 2.0
         # Compute the prototype embedding
-        tree_embeddings = [[proto_emb]]
+        tree_embeddings = [[self.graph_embedding(inputs, inp_graph_edges=None, level_num=-1, graph_num=0)]]
         tree_graphs  = [[inputs]]
         # Iterate though each level of the graph tree
         for i, level in enumerate(self.graph_tree):
@@ -207,7 +220,7 @@ class TreeGraph(object):
                 for k, graph in enumerate(level):
                     # Compute the embedding for the current graph
                     current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
-                    current_embedding = self.graph_embedding(current_graph, graph.meta_graph_edges, i, k) 
+                    current_embedding = self.graph_embedding(current_graph, graph.compute_metagraph_edges(), i, k) 
                     euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
                     ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))  
                     soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
@@ -229,7 +242,7 @@ class TreeGraph(object):
             updated_proto_graphs = tf.unstack(updated_proto_graphs, axis=0)
             # Compute the embedding for the updated prototype graphs of the current level
             for k, graph in enumerate(updated_proto_graphs):
-                updated_proto_embeddings.append(self.graph_embedding(graph, graph_edges=None, level_num=i, graph_num=k))
+                updated_proto_embeddings.append(self.graph_embedding(graph, inp_graph_edges=None, level_num=i, graph_num=k))
 
             # Update the history of updated prototype graph and embeddings list 
             tree_graphs.append(updated_proto_graphs)
