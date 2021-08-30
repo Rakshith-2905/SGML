@@ -51,9 +51,6 @@ class MetaGraph(object):
                                                             shape=(1, input_dim)))
         self.vertex_num = FLAGS.num_graph_vertex
 
-        self.GCN = GraphConvolution(self.hidden_dim, name='graph_{}_data_gcn'.format(name))
-    
-    def compute_metagraph_edges(self,):
         meta_graph = []
         for idx_i in range(self.vertex_num):
             tmp_dist = []
@@ -62,16 +59,37 @@ class MetaGraph(object):
                     dist = tf.squeeze(tf.zeros([1]))
                 else:
 
-                    # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                    #     tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
-                    #     name='meta_dist_' + name + '_node_' + str(idx_i)+ '_to_' + str(idx_j))))
-                    dist = tf.squeeze(tf.sigmoid(
-                        tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
-                        name='meta_dist'))
+                    dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
+                        tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
+                        name='meta_dist_' + name + '_node_' + str(idx_i)+ '_to_' + str(idx_j))))
+                    # dist = tf.squeeze(tf.sigmoid(
+                    #     tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
+                    #     name='meta_dist'))
                 tmp_dist.append(dist)
             meta_graph.append(tf.stack(tmp_dist))
-        meta_graph_edges = tf.stack(meta_graph, name='meta_graph_edges')
-        return meta_graph_edges
+        self.meta_graph_edges = tf.stack(meta_graph, name='meta_graph_edges')
+
+        self.GCN = GraphConvolution(self.hidden_dim, name='graph_{}_data_gcn'.format(name))
+    
+    # def compute_metagraph_edges(self,):
+    #     meta_graph = []
+    #     for idx_i in range(self.vertex_num):
+    #         tmp_dist = []
+    #         for idx_j in range(self.vertex_num):
+    #             if idx_i == idx_j:
+    #                 dist = tf.squeeze(tf.zeros([1]))
+    #             else:
+
+    #                 # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
+    #                 #     tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
+    #                 #     name='meta_dist_' + name + '_node_' + str(idx_i)+ '_to_' + str(idx_j))))
+    #                 dist = tf.squeeze(tf.sigmoid(
+    #                     tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
+    #                     name='meta_dist'))
+    #             tmp_dist.append(dist)
+    #         meta_graph.append(tf.stack(tmp_dist))
+    #     meta_graph_edges = tf.stack(meta_graph, name='meta_graph_edges')
+    #     return meta_graph_edges
 
     def model(self, inputs):
         """
@@ -97,7 +115,7 @@ class MetaGraph(object):
         cross_graph = tf.transpose(cross_graph, perm=[1, 0])
         # print("cross_graph ", cross_graph)
 
-        self.meta_graph_edges = self.compute_metagraph_edges()
+        # self.meta_graph_edges = self.compute_metagraph_edges()
 
         # print("meta_graph ", meta_graph)
         proto_graph = []
@@ -231,16 +249,23 @@ class TreeGraph(object):
                     for k, graph in enumerate(level):
                         # Compute the embedding for the current graph
                         current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
-                        current_embedding = self.graph_embedding(current_graph, graph.compute_metagraph_edges(), i, k) 
+                        current_embedding = self.graph_embedding(current_graph, graph.meta_graph_edges, i, k) 
+
+                        # tf.dense(tf.abs(current_embedding - prev_level_updated_embedding))
+
                         euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
                         ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))  
+                        # #w_i*abs(a - b)
+
                         soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
+                            # tf.exp(w_i*abs(a - b))/tf.reduce_sum(tf.exp(w_i*abs(a - b)))
+            
                     # Do an sigmoid operation on the attentions
                     soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
 
-                    # # equal attention
-                    # soft_attention = tf.ones(len(level))
-                    # soft_attention = soft_attention/tf.reduce_sum(soft_attention)
+                    # equal attention
+                    soft_attention = tf.ones(len(level))
+                    soft_attention = soft_attention/tf.reduce_sum(soft_attention)
                 
                     soft_attention = tf.identity(soft_attention, name='attention_l{}n{}_to_l{}'.format(i-1, j, i))
                     # Iterate through the current level meta graphs

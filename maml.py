@@ -38,10 +38,9 @@ class MAML:
         self.metagraph = []
         if FLAGS.datasource in ['2D']:
             self.metagraph = MetaGraph(input_dim=FLAGS.sync_filters, hidden_dim=FLAGS.sync_filters)
+            self.treeGraph = TreeGraph(input_dim=FLAGS.hidden_dim, hidden_dim=FLAGS.hidden_dim)
         elif FLAGS.datasource in ['plainmulti', 'artmulti']:
             # iterate over number of graphs and create the desired graphs
-            # for graph_idx in range(FLAGS.num_graph):
-            #     self.metagraph.append(MetaGraph(input_dim=FLAGS.hidden_dim, hidden_dim=FLAGS.hidden_dim, name=graph_idx))
             self.treeGraph = TreeGraph(input_dim=FLAGS.hidden_dim, hidden_dim=FLAGS.hidden_dim)
 
         # self.graph_weights = tf.Variable(tf.zeros([FLAGS.num_graph]))
