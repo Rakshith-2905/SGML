@@ -55,7 +55,7 @@ flags.DEFINE_bool('test_set', True, 'Set to true to evaluate on the the test set
 
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
-    SAVE_INTERVAL = 1000
+    SAVE_INTERVAL = 5000
     if FLAGS.datasource in ['2D']:
         PRINT_INTERVAL = 1000
     else:

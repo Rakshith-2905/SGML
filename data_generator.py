@@ -14,7 +14,7 @@ FLAGS = flags.FLAGS
 
 
 class DataGenerator(object):
-    def __init__(self, num_samples_per_class, batch_size, config={}, num_datasets=2):
+    def __init__(self, num_samples_per_class, batch_size, config={}, num_datasets=6):
         self.batch_size = batch_size
         self.num_samples_per_class = num_samples_per_class
         self.num_classes = 1  # by default 1 (only relevant for classification problems)
