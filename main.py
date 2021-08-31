@@ -48,7 +48,9 @@ flags.DEFINE_integer('task_embedding_num_filters', 32, 'number of filters for ta
 ## Graph information
 flags.DEFINE_list('graph_list', [1,3,1], 'list of nodes in each level')
 flags.DEFINE_integer('num_graph_vertex', 4, 'number of vertex for each of the graphs in all the layers')
-flags.DEFINE_bool('eigen_embedding', False, 'Method for embedding the meta graph')
+flags.DEFINE_bool('GCN_embedding', False, 'Method for embedding the meta graph')
+flags.DEFINE_bool('learned_attention', False, 'learnable parameters for attention computation')
+flags.DEFINE_bool('equal_attention', False, 'does the attentin need to be equal across nodes')
 
 ## Logging, saving, and testing options
 flags.DEFINE_bool('log', True, 'if false, do not log summaries, for debugging code.')
@@ -267,20 +269,20 @@ def test(model, sess, data_generator):
                 attention_fetch.append(attention_level)
             fetch.append(attention_fetch)
 
-            # tree_graphs = []
+            tree_graphs = []
             # tree_graphs_edges = []
-            # for level, num_graphs in enumerate(FLAGS.graph_list):
-            #     graph_list = []
-            #     graph_edges_list = []
-            #     for graph_idx in range(num_graphs):
-            #         node_list = []
-            #         graph_edges_list.append('meta_graph_edges_level_{}_graph_{}:0'.format(level, graph_idx))
-            #         for node in range(FLAGS.num_graph_vertex):
-            #             node_list.append('level_{}_graph_{}_{}_node_cluster_center:0'.format(level, graph_idx, node))
-            #         graph_list.append(node_list)
-            #     tree_graphs.append(graph_list)
-            #     tree_graphs_edges.append(graph_edges_list)
-            # fetch.append(tree_graphs)
+            for level, num_graphs in enumerate(FLAGS.graph_list):
+                graph_list = []
+                graph_edges_list = []
+                for graph_idx in range(num_graphs):
+                    node_list = []
+                    # graph_edges_list.append('meta_graph_edges_level_{}_graph_{}:0'.format(level, graph_idx))
+                    for node in range(FLAGS.num_graph_vertex):
+                        node_list.append('level_{}_graph_{}_{}_node_cluster_center:0'.format(level, graph_idx, node))
+                    graph_list.append(node_list)
+                tree_graphs.append(graph_list)
+                # tree_graphs_edges.append(graph_edges_list)
+            fetch.append(tree_graphs)
             # fetch.append(tree_graphs_edges)
 
             result = sess.run(fetch, feed_dict)
@@ -290,11 +292,17 @@ def test(model, sess, data_generator):
         metaval_accuracies.append(result[0])
         # graph_emb.append(result[1])
         attention.append(result[1])
-        # meta_graph.append(result[3])
-        # meta_graph_edges.append(result[4])
+        meta_graph.append(result[2])
+        # meta_graph_edges.append(result[3])
 
     print("\n")
     random_idx = random.randint(0,FLAGS.num_test_task)
+    # for level, num_graphs in enumerate(FLAGS.graph_list):
+    #     for graph_idx in range(num_graphs):
+            
+    #         print("level: {} node: {} vertex: {}", meta_graph[0][level][graph_idx])
+    #     print("\n")
+    # print("\n")
     attention_sample = 100
 
     att_dict = {}
