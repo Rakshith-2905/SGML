@@ -1,6 +1,7 @@
 import random
 import time
 import numpy as np
+import matplotlib.pyplot as plt
 import tensorflow as tf
 tf.logging.set_verbosity(tf.logging.ERROR)
 tf.random.set_random_seed(1234)
@@ -27,6 +28,7 @@ flags.DEFINE_integer('test_epoch', 0, 'test epoch, only work when test start')
 flags.DEFINE_integer('metatrain_iterations', 15000,
                      'number of metatraining iterations.')  # 15k for omniglot, 50k for sinusoid
 flags.DEFINE_integer('meta_batch_size', 25, 'number of tasks sampled per meta-update')
+flags.DEFINE_list('cycle_lr', [1e-4, 1e-2], 'low and high learning rates for the cycle')
 flags.DEFINE_float('meta_lr', 0.001, 'the base learning rate of the generator')
 flags.DEFINE_integer('update_batch_size', 5,
                      'number of examples used for inner gradient update (K for K-shot learning).')
@@ -36,7 +38,6 @@ flags.DEFINE_float('update_lr', 1e-3, 'step size alpha for inner gradient update
 flags.DEFINE_integer('num_updates', 1, 'number of inner gradient updates during training.')
 flags.DEFINE_integer('num_updates_test', 20, 'number of inner gradient updates during training.')
 flags.DEFINE_integer('sync_group_num', 6, 'the number of different groups in sync dataset')
-
 ## Model options
 flags.DEFINE_string('norm', 'batch_norm', 'batch_norm, or None')
 flags.DEFINE_integer('hidden_dim', 40, 'output dimension of task embedding')
@@ -46,9 +47,11 @@ flags.DEFINE_bool('stop_grad', False, 'if True, do not use second derivatives in
 flags.DEFINE_float('emb_loss_weight', 0.0, 'the weight of autoencoder')
 flags.DEFINE_integer('task_embedding_num_filters', 32, 'number of filters for task embedding')
 ## Graph information
-flags.DEFINE_list('graph_list', [1,3,1], 'list of nodes in each level')
+flags.DEFINE_list('graph_list', [1,3, 1], 'list of nodes in each level')
 flags.DEFINE_integer('num_graph_vertex', 4, 'number of vertex for each of the graphs in all the layers')
 flags.DEFINE_bool('eigen_embedding', False, 'Method for embedding the meta graph')
+flags.DEFINE_bool('learned_attention', True, 'learnable parameters for attention computation')
+flags.DEFINE_bool('equal_attention', False, 'does the attentin need to be equal across nodes')
 
 ## Logging, saving, and testing options
 flags.DEFINE_bool('log', True, 'if false, do not log summaries, for debugging code.')
@@ -72,12 +75,24 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
 
     meta_train_acc, meta_test_acc, meta_train_loss, combined_loss = [], [], [], []
 
-    attention =[]
-    meta_graph, meta_graph_edges, graph_embeddings, embed_diffs = [], [], [], []
+    plt_acc = []
+
+    FLAGS.meta_lr = FLAGS.cycle_lr[0]
 
     num_classes = data_generator.num_classes
     start_time = time.time()
     for itr in range(resume_itr, FLAGS.metatrain_iterations):
+
+        # Training schduler
+        cycle_step = (FLAGS.cycle_lr[1] - FLAGS.cycle_lr[0]) / (int(FLAGS.metatrain_iterations * 0.90)/2)
+        decay_step =  (FLAGS.cycle_lr[0] - FLAGS.cycle_lr[0]*0.1) / int(FLAGS.metatrain_iterations * 0.10)
+        if  itr < int(FLAGS.metatrain_iterations * 0.90):
+            if itr < int(FLAGS.metatrain_iterations * 0.90/2): 
+                FLAGS.meta_lr = FLAGS.meta_lr + cycle_step
+            else:
+                FLAGS.meta_lr = FLAGS.meta_lr - cycle_step
+        else:
+            FLAGS.meta_lr = FLAGS.meta_lr - decay_step
 
         feed_dict = {}
         if FLAGS.datasource == '2D':
@@ -93,57 +108,6 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
                         model.total_losses2[FLAGS.num_updates - 1]]
         if model.classification:
             input_tensors.extend([model.total_accuracy1, model.total_accuracies2[FLAGS.num_updates - 1]])
-
-            # attention_fetch = []
-            # for level, graphs in enumerate(FLAGS.graph_list[:-1]):
-            #     attention_level = []
-            #     for graph_idx in range(graphs):
-            #         attention_level.append('model/attention_l{}n{}_to_l{}:0'.format(level, graph_idx, level+1))
-            #     attention_fetch.append(attention_level)
-            # input_tensors.append(attention_fetch)
-
-            # tree_graphs = []
-            # tree_graph_edges = []
-            # for level, num_graphs in enumerate(FLAGS.graph_list):
-            #     graph_list = []
-            #     graph_edges = []
-                
-            #     for graph_idx in range(num_graphs):
-            #         node_list = []
-            #         graph_edges.append('meta_graph_edges_level_{}_graph_{}:0'.format(level, graph_idx))
-                    
-            #         for node in range(FLAGS.num_graph_vertex):
-            #             node_list.append('level_{}_graph_{}_{}_node_cluster_center:0'.format(level, graph_idx, node))
-            #         graph_list.append(node_list)
-
-            #     tree_graphs.append(graph_list)
-            #     tree_graph_edges.append(graph_edges)
-            
-            
-            # embedding_fetch = []
-            # for level, graphs in enumerate(FLAGS.graph_list):
-            #     embedding_level = []
-            #     for graph_idx in range(graphs):
-            #             if level == 0:
-            #                 embedding_level.append('model/level_{}_graph_{}_embedding:0'.format(level, graph_idx))
-            #                 pass
-            #             else:
-            #                 embedding_level.append('model/level_{}_graph_{}_embedding_1:0'.format(level, graph_idx))
-            #     embedding_fetch.append(embedding_level)
-
-            # diff_fetch = []
-            # for prev_level, prev_graphs in enumerate(FLAGS.graph_list[:-1]):
-            #     diff_level = []
-            #     for prev_graph_idx in range(prev_graphs):
-            #             for curr_graph_index in range(FLAGS.graph_list[prev_level+1]):
-            #                 diff_level.append('model/level_{}_graph_{}_level_{}_graph_{}_euclid_diff:0'.format(
-            #                     prev_level, prev_graph_idx, prev_level+1, curr_graph_index))
-            #     diff_fetch.append(diff_level)
-
-            # input_tensors.append(tree_graphs)
-            # input_tensors.append(tree_graph_edges)
-            # input_tensors.append(embedding_fetch)
-            # input_tensors.append(diff_fetch)
         
         result = sess.run(input_tensors, feed_dict)
         
@@ -151,59 +115,37 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
         meta_train_loss.append(result[3])
         meta_train_acc.append(result[5])
         meta_test_acc.append(result[6])
-        # attention.append(result[7])
-        # meta_graph.append(result[8])
-        # meta_graph_edges.append(result[9])
-        # graph_embeddings.append(result[10])
-        # embed_diffs.append(result[11])
-
-        if FLAGS.DEBUG == True:
-
-            print("\n\n\n Epoch {}\n".format(itr))
-            # Compare the graphs between each level
-            random_idx = -1
-            print("\n")
-            for i, num_graph in enumerate(FLAGS.graph_list):
-                if i == 0: continue
-                for j in range(FLAGS.graph_list[i-1]):
-                    prev_embed = np.array(graph_embeddings[random_idx][i-1][j])
-                    soft_att = []
-                    for k in range(num_graph):
-                        curr_graph = np.array(meta_graph[random_idx][i][k])
-                        curr_edges = np.array(meta_graph_edges[random_idx][i][k])
-                        curr_embed = graph_embedding(curr_graph, curr_edges)
-                        soft_att.append(np.exp(-np.sum(np.square(curr_embed- prev_embed)) / (2.0 * 2.0)))
-                    soft_att = soft_att/np.sum(soft_att)
-                    print("level {} graph {} attention with level {}: {}".format(i-1,j,i,soft_att))
-
-            print("\n")
-
-            for level, level_diff in enumerate(embed_diffs[-1]):
-                for idx, diff in enumerate(level_diff):
-                    print("Euclidean diff between embed of level {} graph {} and level {}: {}".format(level, idx, level+1, diff))
-
-            for i in range(len(attention[-1])):
-                print("Attention between level {} and {}: {}".format(i, i+1, attention[-1][i]))
-            if itr >3:
-                assert False
-
+        
         if (itr != 0) and itr % PRINT_INTERVAL == 0:
+
+            plt_acc.append(result[6])
             print_str = 'Iter {}'.format(itr)
             std = np.std(meta_test_acc, 0)
             ci95 = 1.96 * std / np.sqrt(PRINT_INTERVAL)
             print_str += ': metaTrainAcc: ' + str(np.mean(meta_train_acc)) + ', metaTestAcc: ' + str(
                 np.mean(meta_test_acc)) + ', metaTrainLoss: ' + str(np.mean(meta_train_loss)) + ', combinedLoss: ' + str(
-                np.mean(combined_loss)) + ', confidence: ' + str(ci95) + ', timeTaken: ' + str(
+                np.mean(combined_loss)) + ', confidence: ' + str(ci95) + ',lr: ' + str(FLAGS.meta_lr) + ', timeTaken: ' + str(
                 time.time() - start_time) + ' secs, estimatedRemainingTime: ' + str(
                 (time.time() - start_time)*((FLAGS.metatrain_iterations-itr)/PRINT_INTERVAL)/3600) + ' hrs'
 
             print(print_str)
             start_time = time.time()
             meta_train_acc, meta_test_acc, meta_train_loss, combined_loss = [], [], [], []
-
+            
+        plt.plot(plt_acc)
+        # setting title
+        plt.title("Meta test accuracy plot", fontsize=20)
+        
+        # setting x-axis label and y-axis label
+        plt.xlabel("Iterations-axis")
+        plt.ylabel("Meta test accuracy")
         if (itr != 0) and itr % SAVE_INTERVAL == 0:
             saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(itr))
 
+            plt.savefig(FLAGS.logdir + '/' + exp_string + '/acc_plt.png')
+
+
+    plt.savefig(FLAGS.logdir + '/' + exp_string + '/acc_plt.png')
     saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(itr))
 
 

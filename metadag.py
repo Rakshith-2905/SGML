@@ -243,29 +243,44 @@ class TreeGraph(object):
             else:
                 # Iterate over the updated prototype graph and embeddings from the previous level
                 for j, prev_level_updated_graph, prev_level_updated_embedding in zip(range(len(tree_embeddings[-1])), tree_graphs[-1], tree_embeddings[-1]):
+                    if not FLAGS.equal_attention:
+                        # Compute the soft assignment between the current level meta graphs and the updated prototype graph
+                        soft_attention = []
+                        for k, graph in enumerate(level):
+                            # Compute the embedding for the current graph
+                            current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
+                            current_embedding = self.graph_embedding(current_graph, graph.meta_graph_edges, i, k) 
 
-                    # Compute the soft assignment between the current level meta graphs and the updated prototype graph
-                    soft_attention = []
-                    for k, graph in enumerate(level):
-                        # Compute the embedding for the current graph
-                        current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
-                        current_embedding = self.graph_embedding(current_graph, graph.meta_graph_edges, i, k) 
+                            # if attention is to be learned, compute the abs diff of embeddings
+                            if FLAGS.learned_attention:
+                                euclid_diff = tf.abs(current_embedding - prev_level_updated_embedding)
+                                soft_attention.append(euclid_diff)
+                            # Else compute the l2 distance between the embeddings
+                            else:
+                                euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
+                                ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))
+                                soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
+                
 
-                        # tf.dense(tf.abs(current_embedding - prev_level_updated_embedding))
+                        # Using the euledian distance between the embeddings of current level with updated proto`type compute attention
+                        if FLAGS.learned_attention:
+                            # Weighted attention metric, computed as w_i*(|a-b|) where w_i is unique for every level in a task but reused across tasks
+                            soft_attention = tf.stack(soft_attention)
+                            soft_attention = tf.layers.dense(soft_attention, units=1,\
+                                name="level_{}_graph_{}_level_{}_learned_att".format(i-1,j,i), reuse=tf.AUTO_REUSE)
+                            
+                            soft_attention = tf.reshape(soft_attention, shape=[-1])
+                            # Do an sigmoid operation on the attentions
+                            soft_attention = tf.exp(soft_attention)
+                            soft_attention = soft_attention/tf.reduce_sum(soft_attention)
+                        else:
+                            # Do an sigmoid operation on the attentions
+                            soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
 
-                        euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
-                        ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))  
-                        # #w_i*abs(a - b)
-
-                        soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
-                            # tf.exp(w_i*abs(a - b))/tf.reduce_sum(tf.exp(w_i*abs(a - b)))
-            
-                    # Do an sigmoid operation on the attentions
-                    soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
-
-                    # equal attention
-                    soft_attention = tf.ones(len(level))
-                    soft_attention = soft_attention/tf.reduce_sum(soft_attention)
+                    else:
+                        # equal attention
+                        soft_attention = tf.ones(len(level))
+                        soft_attention = soft_attention/tf.reduce_sum(soft_attention)
                 
                     soft_attention = tf.identity(soft_attention, name='attention_l{}n{}_to_l{}'.format(i-1, j, i))
                     # Iterate through the current level meta graphs
