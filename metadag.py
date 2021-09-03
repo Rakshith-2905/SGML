@@ -225,18 +225,27 @@ class TreeGraph(object):
                             current_graph = tf.squeeze(tf.stack(graph.node_cluster_center), axis=1)
                             current_embedding = self.graph_embedding(current_graph, graph.meta_graph_edges, i, k) 
                             if FLAGS.learned_attention:
-                                # Weighted attention metric, computed as w_i*(|a-b|) where w_i is unique for every node difference in a task but reused across tasks
-                                euclid_diff = tf.layers.dense(tf.expand_dims(tf.abs(current_embedding - prev_level_updated_embedding), axis=0), units=1,\
-                                    name="level_{}_graph_{}_level_{}_graph_{}_diff".format(i-1,j,i,k), reuse=tf.AUTO_REUSE)
-                                soft_attention.append(tf.exp(tf.squeeze(euclid_diff)))
+                                euclid_diff = tf.abs(current_embedding - prev_level_updated_embedding)
+                                soft_attention.append(euclid_diff)
 
                             else:
                                 euclid_diff = tf.reduce_sum(tf.square(current_embedding - prev_level_updated_embedding
                                 ), name="level_{}_graph_{}_level_{}_graph_{}_euclid_diff".format(i-1,j,i,k))
                                 soft_attention.append(tf.exp(-euclid_diff/ (2.0 * sigma)))
-                
-                        # Do an sigmoid operation on the attentions
-                        soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
+
+                        # Weighted attention metric, computed as w_i*(|a-b|) where w_i is unique for every level in a task but reused across tasks
+                        if FLAGS.learned_attention:
+                            soft_attention = tf.stack(soft_attention)
+                            soft_attention = tf.layers.dense(soft_attention, units=1,\
+                                name="level_{}_graph_{}_level_{}_learned_att".format(i-1,j,i), reuse=tf.AUTO_REUSE)
+                            
+                            soft_attention = tf.reshape(soft_attention, shape=[-1])
+                            # Do an sigmoid operation on the attentions
+                            soft_attention = tf.exp(soft_attention)
+                            soft_attention = soft_attention/tf.reduce_sum(soft_attention)
+                        else:
+                            # Do an sigmoid operation on the attentions
+                            soft_attention = tf.stack(soft_attention)/tf.reduce_sum(tf.stack(soft_attention))
 
                     else:
                         # equal attention
@@ -244,7 +253,6 @@ class TreeGraph(object):
                         soft_attention = soft_attention/tf.reduce_sum(soft_attention)
                 
                     soft_attention = tf.identity(soft_attention, name='attention_l{}n{}_to_l{}'.format(i-1, j, i))
-
                     # Iterate through the current level meta graphs
                     temp_updated_graphs = []
                     for k, graph in enumerate(level):
