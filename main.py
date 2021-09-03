@@ -17,9 +17,9 @@ FLAGS = flags.FLAGS
 
 ## Dataset/method options
 flags.DEFINE_string('datasource', 'plainmulti', '2D or plainmulti or artmulti')
-flags.DEFINE_bool('hetrogeneous', False, 'Sample data hetrogenously across 4 classes')
+flags.DEFINE_integer('num_datasets', 4, 'The number of datasets to use plainmulti: 0-5')
 flags.DEFINE_integer('test_dataset', -1,
-                     'which data to be test, plainmulti: 0-3, artmulti: 0-11, -1: random select')
+                     'which data to be test, plainmulti: 0-5, artmulti: 0-11, -1: random select')
 flags.DEFINE_integer('num_classes', 5, 'number of classes used in classification (e.g. 5-way classification).')
 flags.DEFINE_integer('num_test_task', 1000, 'number of test tasks.')
 flags.DEFINE_integer('test_epoch', 0, 'test epoch, only work when test start')
@@ -47,7 +47,7 @@ flags.DEFINE_bool('stop_grad', False, 'if True, do not use second derivatives in
 flags.DEFINE_float('emb_loss_weight', 0.0, 'the weight of autoencoder')
 flags.DEFINE_integer('task_embedding_num_filters', 32, 'number of filters for task embedding')
 ## Graph information
-flags.DEFINE_list('graph_list', [1,3, 1], 'list of nodes in each level')
+flags.DEFINE_list('graph_list', [1,2, 1], 'list of nodes in each level')
 flags.DEFINE_integer('num_graph_vertex', 4, 'number of vertex for each of the graphs in all the layers')
 flags.DEFINE_bool('eigen_embedding', False, 'Method for embedding the meta graph')
 flags.DEFINE_bool('learned_attention', True, 'learnable parameters for attention computation')
@@ -84,15 +84,12 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
     for itr in range(resume_itr, FLAGS.metatrain_iterations):
 
         # Training schduler
-        cycle_step = (FLAGS.cycle_lr[1] - FLAGS.cycle_lr[0]) / (int(FLAGS.metatrain_iterations * 0.90)/2)
-        decay_step =  (FLAGS.cycle_lr[0] - FLAGS.cycle_lr[0]*0.1) / int(FLAGS.metatrain_iterations * 0.10)
-        if  itr < int(FLAGS.metatrain_iterations * 0.90):
-            if itr < int(FLAGS.metatrain_iterations * 0.90/2): 
-                FLAGS.meta_lr = FLAGS.meta_lr + cycle_step
-            else:
-                FLAGS.meta_lr = FLAGS.meta_lr - cycle_step
+        cycle_step = (FLAGS.cycle_lr[1] - FLAGS.cycle_lr[0]) / (FLAGS.metatrain_iterations/2)
+
+        if itr < int(FLAGS.metatrain_iterations/2): 
+            FLAGS.meta_lr = FLAGS.meta_lr + cycle_step
         else:
-            FLAGS.meta_lr = FLAGS.meta_lr - decay_step
+            FLAGS.meta_lr = FLAGS.meta_lr - cycle_step
 
         feed_dict = {}
         if FLAGS.datasource == '2D':
@@ -141,9 +138,6 @@ def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
         plt.ylabel("Meta test accuracy")
         if (itr != 0) and itr % SAVE_INTERVAL == 0:
             saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(itr))
-
-            plt.savefig(FLAGS.logdir + '/' + exp_string + '/acc_plt.png')
-
 
     plt.savefig(FLAGS.logdir + '/' + exp_string + '/acc_plt.png')
     saver.save(sess, FLAGS.logdir + '/' + exp_string + '/model' + str(itr))

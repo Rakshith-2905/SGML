@@ -235,11 +235,12 @@ class TreeGraph(object):
             updated_proto_embeddings = []
             # If first level compute the updated proto graph as GCN(proto graph, current meta graph)
             if i == 0:
-                updated_proto_graph_nodes, updated_proto_graph_edges = level[0].model(inputs)
+                for k, graph in enumerate(level):
+                    updated_proto_graph_nodes, updated_proto_graph_edges = graph.model(inputs)
 
-                updated_proto_graphs.append(updated_proto_graph_nodes)
+                    updated_proto_graphs.append(updated_proto_graph_nodes)
 
-                updated_proto_embeddings.append(self.graph_embedding(updated_proto_graph_nodes, updated_proto_graph_edges, i, 0))
+                    updated_proto_embeddings.append(self.graph_embedding(updated_proto_graph_nodes, updated_proto_graph_edges, i, k))
             else:
                 # Iterate over the updated prototype graph and embeddings from the previous level
                 for j, prev_level_updated_graph, prev_level_updated_embedding in zip(range(len(tree_embeddings[-1])), tree_graphs[-1], tree_embeddings[-1]):
@@ -305,7 +306,10 @@ class TreeGraph(object):
             tree_embeddings.append(updated_proto_embeddings)
 
             # print("\n***********************************************\n\n\n")
-        return tree_graphs[-1][0]
+
+        output = tf.reduce_mean(tf.stack(tree_graphs[-1]), axis=0)
+
+        return output
 
 if __name__ == "__main__":
     main()
