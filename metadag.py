@@ -53,6 +53,24 @@ class MetaGraph(object):
 
         self.vertex_num = FLAGS.num_vertex
 
+        meta_graph = []
+        for idx_i in range(self.vertex_num):
+            tmp_dist = []
+            for idx_j in range(self.vertex_num):
+                if idx_i == idx_j:
+                    dist = tf.squeeze(tf.zeros([1]))
+                else:
+                    # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
+                    #     tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
+                    #     name='meta_dist')))
+                    dist = tf.squeeze(tf.sigmoid(
+                        tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
+                        name='meta_dist'))
+                tmp_dist.append(dist)
+            meta_graph.append(tf.stack(tmp_dist))
+        self.meta_graph = tf.stack(meta_graph)
+
+
         self.adj_mlp_weight = tf.Variable(tf.truncated_normal([self.hidden_dim, 1], dtype=tf.float32),
                                           name='adj_mlp_weight')
         self.adj_mlp_bias = tf.Variable(tf.constant(0.1, shape=[1],
@@ -70,23 +88,6 @@ class MetaGraph(object):
             (-tf.reduce_sum(tf.square(inputs - self.node_cluster_center), axis=-1) / (2.0 * sigma)), axis=0)
         cross_graph = tf.transpose(cross_graph, perm=[1, 0])
 
-        meta_graph = []
-        for idx_i in range(self.vertex_num):
-            tmp_dist = []
-            for idx_j in range(self.vertex_num):
-                if idx_i == idx_j:
-                    dist = tf.squeeze(tf.zeros([1]))
-                else:
-                    # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                    #     tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
-                    #     name='meta_dist')))
-                    dist = tf.squeeze(tf.sigmoid(
-                        tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
-                        name='meta_dist'))
-                tmp_dist.append(dist)
-            meta_graph.append(tf.stack(tmp_dist))
-        meta_graph = tf.stack(meta_graph)
-
         proto_graph = []
         for idx_i in range(self.proto_num):
             tmp_dist = []
@@ -103,7 +104,7 @@ class MetaGraph(object):
         proto_graph = tf.stack(proto_graph)
 
         adj = tf.concat((tf.concat((proto_graph, cross_graph), axis=1),
-                         tf.concat((tf.transpose(cross_graph, perm=[1, 0]), meta_graph), axis=1)), axis=0)
+                         tf.concat((tf.transpose(cross_graph, perm=[1, 0]), self.meta_graph), axis=1)), axis=0)
 
         feat = tf.concat((inputs, tf.squeeze(tf.stack(self.node_cluster_center))), axis=0)
 
