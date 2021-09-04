@@ -60,12 +60,11 @@ class MetaGraph(object):
                 if idx_i == idx_j:
                     dist = tf.squeeze(tf.zeros([1]))
                 else:
-                    # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                    #     tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
-                    #     name='meta_dist')))
-                    dist = tf.squeeze(tf.sigmoid(
-                        tf.math.reduce_euclidean_norm(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]),
-                        name='meta_dist'))
+
+                    dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
+                        tf.abs(self.node_cluster_center[idx_i] - self.node_cluster_center[idx_j]), units=1,
+                        name='meta_dist' + '_node_' + str(idx_i)+ '_to_' + str(idx_j))))
+
                 tmp_dist.append(dist)
             meta_graph.append(tf.stack(tmp_dist))
         self.meta_graph = tf.stack(meta_graph)
@@ -95,8 +94,6 @@ class MetaGraph(object):
                 if idx_i == idx_j:
                     dist = tf.squeeze(tf.zeros([1]))
                 else:
-                    # dist = tf.squeeze(tf.sigmoid(tf.layers.dense(
-                    #     tf.abs(tf.expand_dims(inputs[idx_i] - inputs[idx_j], axis=0)), units=1, name='proto_dist')))
                     dist = tf.squeeze(tf.sigmoid(
                         tf.math.reduce_euclidean_norm(inputs[idx_i] - inputs[idx_j]),name='proto_dist'))
                 tmp_dist.append(dist)
