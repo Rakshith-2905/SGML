@@ -14,7 +14,7 @@ FLAGS = flags.FLAGS
 
 ## Dataset/method options
 flags.DEFINE_string('datasource', 'plainmulti', '2D or plainmulti or artmulti')
-flags.DEFINE_bool('hetrogeneous', False, 'Sample data hetrogenously across 6 datasets')
+flags.DEFINE_integer('num_datasets', 4, 'The number of datasets to use plainmulti: 0-5')
 flags.DEFINE_integer('test_dataset', -1,
                      'which data to be test, plainmulti: 0-3, artmulti: 0-11, -1: random select')
 flags.DEFINE_integer('num_classes', 5, 'number of classes used in classification (e.g. 5-way classification).')
@@ -55,7 +55,7 @@ flags.DEFINE_bool('test_set', True, 'Set to true to evaluate on the the test set
 
 
 def train(model, saver, sess, exp_string, data_generator, resume_itr=0):
-    SAVE_INTERVAL = 5000
+    SAVE_INTERVAL = 40000
     if FLAGS.datasource in ['2D']:
         PRINT_INTERVAL = 1000
     else:
